@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
 
+import aiRoutes from './routes/ai_routes.js';
+
 dotenv.config();
 
 const app = express();
@@ -26,6 +28,8 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => {
     res.send('Hello, world!');
 });
+
+app.use('/api/v1/ai', aiRoutes);
 
 app.use((err, req, res, next) => {
     console.error(err.stack);
