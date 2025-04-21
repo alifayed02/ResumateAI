@@ -10,122 +10,126 @@ dotenv.config();
 const client = new OpenAI();
 
 export async function optimize(req, res) {
-    const { resume_id, vectorStore_id } = await createVectorStore();
-    const assistant = await client.beta.assistants.create({
-        name: "Resume Optimizer",
-        instructions: "You are a resume optimization expert. Use the following job description to improve each section of a resume:\n\n" + req.body.job_description,
-        model: "gpt-4.1-mini",
-        tools: [{ type: "file_search" }],
-        tool_resources: {
-            "file_search": {
-              "vector_store_ids": [vectorStore_id]
-            }
-          }
-    });
-    const thread = await client.beta.threads.create({
-      tool_resources: {
-        "file_search": {
-          "vector_store_ids": [vectorStore_id]
-        }
-      }
-    });
-    const assistant_id = assistant.id
+    const resume_file_id = await createResumeFile();
 
     let changes_accumulated = [];
-    const sections = await getSections(thread.id, assistant_id);
-    // for (const section of sections) {
-    //     const changes = await getChanges(thread.id, assistant_id, section);
-    //     changes_accumulated.push(changes);
-    // }
+    const sections = await getSections(resume_file_id);
+    for (const section of sections) {
+        const changes = await getChanges(resume_file_id, section, req.body.job_description);
+        changes_accumulated.push(changes);
+    }
     await updateResume(changes_accumulated);
 
-    await deleteResources(resume_id, assistant_id, thread.id, vectorStore_id);
+    await deleteResources(resume_file_id);
     res.json({ message: 'Resume optimized successfully' });
 }
 
-async function createVectorStore() {
+async function createResumeFile() {
     const file = await client.files.create({
-        file: fs.createReadStream("Resume.docx"),
-        purpose: "assistants"
+        file: fs.createReadStream("Resume.pdf"),
+        purpose: "user_data"
     });
     const resume_id = file.id;
-    
-    const vectorStore = await client.vectorStores.create({
-        name: "Resume",
-        file_ids: [resume_id]
-    });
-    return { resume_id, vectorStore_id: vectorStore.id };
+
+    return resume_id;
 }
 
-async function getSections(thread_id, assistant_id) {
-    await client.beta.threads.messages.create(
-        thread_id,
-        {
-            role: "user",
-            content: "Using the file_search tool to look at the \"Resume.docx\" resume file, tell me the list of sections this \"Resume.docx\" has.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever and DO NOT format it in a code block/syntax highlighting:\n\n{\n\"sections\": [\"Education\", \"Work Experience\"]\n}"
-        }
-    );
-    let run = await client.beta.threads.runs.createAndPoll(
-        thread_id,
-        { 
-          assistant_id: assistant_id,
-        }
-    );
-    if (run.status === 'completed') {
-        const messages = await client.beta.threads.messages.list(
-          run.thread_id
-        );
-        const last_message = messages.data[0].content[0].text.value;
-        console.log("[Debug] Sections: ", last_message);
-        const sections = JSON.parse(last_message);
-        return sections.sections;
-      } else {
-        return null;
-    }
+async function getSections(resume_file_id) {
+	const response = await client.responses.create({
+		model: "gpt-4.1-mini",
+		input: [
+			{
+				role: "user",
+				content: [
+					{
+						type: "input_file",
+						file_id: resume_file_id
+					},
+					{
+						type: "input_text",
+						text: "Look at the input resume file and tell me the list of sections this file has. Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activies, Languages, Volunteering Experience, Hobbies & Interests."
+					}
+				]
+			}
+		],
+		text: {
+			format: {
+				type: "json_schema",
+				name: "sections",
+				schema: {
+					type: "object",
+					properties: {
+						sections: {
+							type: "array",
+							items: {
+								type: "string"
+							}
+						}
+					},
+					required: ["sections"],
+					additionalProperties: false
+				}
+			}
+		}
+	});
+
+	if(!response.output_text) {
+		console.error("[Error] Failed to get sections");
+		return null;
+	}
+
+	const last_message = response.output_text;
+	console.log("[Debug] Sections: ", last_message);
+	const sections = JSON.parse(last_message);
+
+	return sections.sections;
 }
 
-async function getChanges(thread_id, assistant_id, section) {
-    await client.beta.threads.messages.create(
-        thread_id,
-        {
-            role: "user",
-            content: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–`
-        }
-    );
-    let run = await client.beta.threads.runs.createAndPoll(
-        thread_id,
-        { 
-          assistant_id: assistant_id,
-        }
-    );
-    if (run.status === 'completed') {
-        const messages = await client.beta.threads.messages.list(
-          run.thread_id
-        );
-        const last_message = messages.data[0].content[0].text.value;
+async function getChanges(resume_file_id, section, job_description) {
+	const response = await client.responses.create({
+		model: "gpt-4.1-mini",
+		input: [
+			{
+				role: "user",
+				content: [
+					{
+						type: "input_file",
+						file_id: resume_file_id
+					},
+					{
+						type: "input_text",
+						text: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
+					}
+				]
+			}
+		],
+	});
 
-        try {
-            console.log("[Debug] Changes: ", last_message);
-            const changeJson = JSON.parse(last_message);
-            
-            const changes = [];
-            for (const key in changeJson.changes) {
-                if (Object.hasOwnProperty.call(changeJson.changes, key)) {
-                    changes.push(changeJson.changes[key]);
-                }
-            }
+	if(!response.output_text) {
+		return null;
+	}
 
-            console.log(`[Debug] Successfully parsed ${section}`);
-            
-            return changes;
-        } catch (error) {
-            console.error(`[Error] Error parsing ${section}:`, error);
-            console.log("[Error] Raw message:", last_message);
-            return null;
-        }
-      } else {
-        return null;
-    }
+	const last_message = response.output_text;
+
+	try {
+		console.log("[Debug] Changes: ", last_message);
+		const changeJson = JSON.parse(last_message);
+		  
+		const changes = [];
+		for (const key in changeJson.changes) {
+			if (Object.hasOwnProperty.call(changeJson.changes, key)) {
+				changes.push(changeJson.changes[key]);
+			}
+		}
+
+		console.log(`[Debug] Successfully parsed ${section}`);
+		
+		return changes;
+	} catch (error) {
+		console.error(`[Error] Error parsing ${section}:`, error);
+		console.log("[Error] Raw message:", last_message);
+		return null;
+	}
 }
 
 function escapeRegExp(string) {
@@ -216,9 +220,6 @@ async function deleteVectorStore(vectorStore_id) {
     }
 }
 
-async function deleteResources(resume_id, assistant_id, thread_id, vectorStore_id) {
+async function deleteResources(resume_id) {
     await deleteResume(resume_id);
-    await deleteThread(thread_id);
-    await deleteAssistant(assistant_id);
-    await deleteVectorStore(vectorStore_id);
 }
