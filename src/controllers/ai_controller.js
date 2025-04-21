@@ -22,15 +22,21 @@ export async function optimize(req, res) {
             }
           }
     });
-    const thread = await client.beta.threads.create();
+    const thread = await client.beta.threads.create({
+      tool_resources: {
+        "file_search": {
+          "vector_store_ids": [vectorStore_id]
+        }
+      }
+    });
     const assistant_id = assistant.id
 
     let changes_accumulated = [];
     const sections = await getSections(thread.id, assistant_id);
-    for (const section of sections) {
-        const changes = await getChanges(thread.id, assistant_id, section);
-        changes_accumulated.push(changes);
-    }
+    // for (const section of sections) {
+    //     const changes = await getChanges(thread.id, assistant_id, section);
+    //     changes_accumulated.push(changes);
+    // }
     await updateResume(changes_accumulated);
 
     await deleteResources(resume_id, assistant_id, thread.id, vectorStore_id);
@@ -42,8 +48,8 @@ async function createVectorStore() {
         file: fs.createReadStream("Resume.docx"),
         purpose: "assistants"
     });
-
     const resume_id = file.id;
+    
     const vectorStore = await client.vectorStores.create({
         name: "Resume",
         file_ids: [resume_id]
@@ -56,7 +62,7 @@ async function getSections(thread_id, assistant_id) {
         thread_id,
         {
             role: "user",
-            content: "Using the file_search tool to look at the \"Resume.docx\" resume file, tell me the list of sections this resume has.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever and DO NOT format it in a code block/syntax highlighting:\n\n{\n\"sections\": [\"Education\", \"Work Experience\"]\n}"
+            content: "Using the file_search tool to look at the \"Resume.docx\" resume file, tell me the list of sections this \"Resume.docx\" has.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever and DO NOT format it in a code block/syntax highlighting:\n\n{\n\"sections\": [\"Education\", \"Work Experience\"]\n}"
         }
     );
     let run = await client.beta.threads.runs.createAndPoll(
@@ -83,7 +89,7 @@ async function getChanges(thread_id, assistant_id, section) {
         thread_id,
         {
             role: "user",
-            content: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT cite the file:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–`
+            content: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–`
         }
     );
     let run = await client.beta.threads.runs.createAndPoll(
