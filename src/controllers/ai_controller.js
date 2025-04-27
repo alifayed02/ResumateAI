@@ -18,7 +18,7 @@ export async function optimize(req, res) {
         const changes = await getChanges(resume_file_id, section, req.body.job_description);
         changes_accumulated.push(changes);
     }
-    await updateResume(changes_accumulated);
+    // await updateResume(changes_accumulated);
 
     await deleteResources(resume_file_id);
     res.json({ message: 'Resume optimized successfully' });
@@ -98,11 +98,11 @@ async function getChanges(resume_file_id, section, job_description) {
 					},
 					{
 						type: "input_text",
-						text: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
+						text: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
 					}
 				]
 			}
-		],
+		]
 	});
 
 	if(!response.output_text) {
@@ -137,21 +137,21 @@ function escapeRegExp(string) {
 }
 
 async function updateResume(changes) {
-    // const content = fs.readFileSync("Resume.docx", "binary");
-    // const zip = new PizZip(content);
-    // let xml = zip.file("word/document.xml").asText();
+    const content = fs.readFileSync("Resume.docx", "binary");
+    const zip = new PizZip(content);
+    let xml = zip.file("word/document.xml").asText();
 
-    // for (const [oldLine, newLine] of changes) {
-    //     const pattern = new RegExp(escapeRegExp(oldLine), "g");
-    //     xml = xml.replace(pattern, newLine);
-    // }
+    for (const [oldLine, newLine] of changes) {
+        const pattern = new RegExp(escapeRegExp(oldLine), "g");
+        xml = xml.replace(pattern, newLine);
+    }
 
-    // zip.file("word/document.xml", xml);
+    zip.file("word/document.xml", xml);
 
-    // const buf = zip.generate({ type: "nodebuffer" });
-    // fs.writeFileSync("output.docx", buf);
+    const buf = zip.generate({ type: "nodebuffer" });
+    fs.writeFileSync("output.docx", buf);
 
-    // console.log(`Wrote updated file to output.docx`);
+    console.log(`Wrote updated file to output.docx`);
 }
 
 async function deleteResume(resume_id) {
@@ -167,56 +167,6 @@ async function deleteResume(resume_id) {
       console.log(`Deleted file ${resume_id}`);
     } catch (error) {
       console.error(`Failed to delete file ${resume_id}:`, error.response?.data || error.message);
-    }
-}
-
-async function deleteAssistant(assistant_id) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const url = `https://api.openai.com/v1/assistants/${assistant_id}`;
-
-  try {
-    const response = await axios.delete(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'OpenAI-Beta': 'assistants=v2'
-      },
-    });
-    console.log(`Deleted assistant ${assistant_id}`);
-  } catch (error) {
-    console.error(`Failed to delete assistant ${assistant_id}:`, error.response?.data || error.message);
-  }
-}
-
-async function deleteThread(thread_id) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const url = `https://api.openai.com/v1/threads/${thread_id}`;
-
-  try {
-    const response = await axios.delete(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'OpenAI-Beta': 'assistants=v2'
-      },
-    });
-    console.log(`Deleted thread ${thread_id}`);
-  } catch (error) {
-    console.error(`Failed to delete thread ${thread_id}:`, error.response?.data || error.message);
-  }
-}
-
-async function deleteVectorStore(vectorStore_id) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    const url = `https://api.openai.com/v1/vector_stores/${vectorStore_id}`;
-  
-    try {
-      const response = await axios.delete(url, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-      });
-      console.log(`Deleted vector store ${vectorStore_id}`);
-    } catch (error) {
-      console.error(`Failed to delete vector store ${vectorStore_id}:`, error.response?.data || error.message);
     }
 }
 
