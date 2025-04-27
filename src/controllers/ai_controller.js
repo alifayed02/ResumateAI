@@ -2,7 +2,6 @@ import { OpenAI } from 'openai';
 
 import dotenv from 'dotenv';
 import fs from 'fs';
-import PizZip from 'pizzip';
 import axios from 'axios';
 
 dotenv.config();
@@ -12,16 +11,18 @@ const client = new OpenAI();
 export async function optimize(req, res) {
     const resume_file_id = await createResumeFile();
 
-    let changes_accumulated = [];
+    let changes_accumulated = {};
     const sections = await getSections(resume_file_id);
     for (const section of sections) {
         const changes = await getChanges(resume_file_id, section, req.body.job_description);
-        changes_accumulated.push(changes);
+        changes_accumulated[section] = changes;
     }
-    // await updateResume(changes_accumulated);
 
     await deleteResources(resume_file_id);
-    res.json({ message: 'Resume optimized successfully' });
+
+	console.log(changes_accumulated);
+
+    res.json({ message: 'Resume optimized successfully', changes_accumulated });
 }
 
 async function createResumeFile() {
@@ -98,7 +99,7 @@ async function getChanges(resume_file_id, section, job_description) {
 					},
 					{
 						type: "input_text",
-						text: `Using the file_search tool to look at the \"Resume.docx\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
+						text: `Using the file_search tool to look at the \"Resume.pdf\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
 					}
 				]
 			}
@@ -130,28 +131,6 @@ async function getChanges(resume_file_id, section, job_description) {
 		console.log("[Error] Raw message:", last_message);
 		return null;
 	}
-}
-
-function escapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-async function updateResume(changes) {
-    const content = fs.readFileSync("Resume.docx", "binary");
-    const zip = new PizZip(content);
-    let xml = zip.file("word/document.xml").asText();
-
-    for (const [oldLine, newLine] of changes) {
-        const pattern = new RegExp(escapeRegExp(oldLine), "g");
-        xml = xml.replace(pattern, newLine);
-    }
-
-    zip.file("word/document.xml", xml);
-
-    const buf = zip.generate({ type: "nodebuffer" });
-    fs.writeFileSync("output.docx", buf);
-
-    console.log(`Wrote updated file to output.docx`);
 }
 
 async function deleteResume(resume_id) {
