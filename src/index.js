@@ -4,11 +4,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 
 import aiRoutes from './routes/ai_routes.js';
+import { connectDB } from './config/mongo_connect.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+await connectDB();
 
 app.use(helmet());
 
