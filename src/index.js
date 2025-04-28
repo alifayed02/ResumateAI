@@ -4,6 +4,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 
 import aiRoutes from './routes/ai_routes.js';
+import userRoutes from './routes/user_routes.js';
+
 import { connectDB } from './config/mongo_connect.js';
 
 dotenv.config();
@@ -33,6 +35,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/user', userRoutes);
 
 app.use((err, req, res, next) => {
     console.error(err.stack);
