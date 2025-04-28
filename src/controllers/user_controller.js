@@ -81,3 +81,9 @@ export async function uploadResume(req, res) {
         res.status(500).json({ message: 'Failed to upload resume' });
     }
 }
+
+export async function retrieveResume(req, res) {
+    const email = req.body.email;
+
+    
+}

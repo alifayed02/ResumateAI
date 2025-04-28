@@ -1,15 +1,21 @@
-import { OpenAI } from 'openai';
-
+import OpenAI from 'openai';
 import dotenv from 'dotenv';
-import fs from 'fs';
+import { ObjectId } from 'mongodb';
+import mongoose from 'mongoose';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { pipeline } from 'stream/promises';
+
+import { resumesBucket } from '../config/mongo_connect.js';
 
 dotenv.config();
 
 const client = new OpenAI();
 
 export async function optimize(req, res) {
-    const resume_file_id = await createResumeFile();
+	const resume_file_id = await createResumeFile(req.body.resume_id);
 
     let changes_accumulated = {};
     const sections = await getSections(resume_file_id);
@@ -25,14 +31,27 @@ export async function optimize(req, res) {
     res.json({ message: 'Resume optimized successfully', changes_accumulated });
 }
 
-async function createResumeFile() {
-    const file = await client.files.create({
-        file: fs.createReadStream("Resume.pdf"),
-        purpose: "user_data"
-    });
-    const resume_id = file.id;
+async function createResumeFile(resume_file_id) {
+	const fileId = new ObjectId(resume_file_id);
+	const filesColl = mongoose.connection.db.collection('resumes.files');
+	const fileDoc = await filesColl.findOne({ _id: fileId });
+	if (!fileDoc) {
+		throw new Error('File not found in GridFS');
+	}
+	const tmpPath = path.join(os.tmpdir(), `${resume_file_id}-${fileDoc.filename}`);
+	await pipeline(
+	  resumesBucket.openDownloadStream(fileId),
+	  fs.createWriteStream(tmpPath)
+	);
+	
+	const file = await client.files.create({
+		file: fs.createReadStream(tmpPath), 
+		purpose: "user_data"
+	});
 
-    return resume_id;
+	const resume_id = file.id;
+	console.log(`OpenAI file created successfully with ID: ${resume_id}`);
+	return resume_id;
 }
 
 async function getSections(resume_file_id) {
@@ -99,7 +118,7 @@ async function getChanges(resume_file_id, section, job_description) {
 					},
 					{
 						type: "input_text",
-						text: `Using the file_search tool to look at the \"Resume.pdf\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
+						text: `Using the file_search tool to look at the \"Resume.pdf\" resume file and the job description, optimize the \"${section}\" section to make this \"Resume.docx\" resume the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations. Ensure the JSON is in valid format:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
 					}
 				]
 			}
