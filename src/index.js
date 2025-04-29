@@ -11,14 +11,14 @@ import { connectDB } from './config/mongo_connect.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 await connectDB();
 
 app.use(helmet());
 
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3001',
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials: true,
 }));
 
