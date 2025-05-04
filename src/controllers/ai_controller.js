@@ -15,6 +15,9 @@ dotenv.config();
 const client = new OpenAI();
 
 export async function optimize(req, res) {
+	if(!req.body.resume_id || !req.body.job_description) {
+		return res.status(400).json({ message: 'Missing resume_id or job_description' });
+	}
 	const resume_file_id = await createResumeFile(req.body.resume_id);
 
     let changes_accumulated = {};
@@ -39,6 +42,7 @@ async function createResumeFile(resume_file_id) {
 		throw new Error('File not found in GridFS');
 	}
 	const tmpPath = path.join(os.tmpdir(), `${resume_file_id}-${fileDoc.filename}`);
+	console.log(tmpPath);
 	await pipeline(
 	  resumesBucket.openDownloadStream(fileId),
 	  fs.createWriteStream(tmpPath)
@@ -47,6 +51,14 @@ async function createResumeFile(resume_file_id) {
 	const file = await client.files.create({
 		file: fs.createReadStream(tmpPath), 
 		purpose: "user_data"
+	});
+
+	fs.unlink(tmpPath, (err) => {
+		if (err) {
+			console.error(`Error deleting temporary file ${tmpPath}:`, err);
+		} else {
+			console.log(`Temporary file ${tmpPath} deleted successfully`);
+		}
 	});
 
 	const resume_id = file.id;
