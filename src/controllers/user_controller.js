@@ -10,6 +10,7 @@ dotenv.config();
 const upload = multer();
 
 export async function createUser(req, res) {
+    const firebase_id = req.body.firebase_id;
     const email = req.body.email;
 
     try {
@@ -18,6 +19,7 @@ export async function createUser(req, res) {
             return res.status(409).json({ message: 'User already exists' });
         }
         const user = new UserModel({
+            firebase_id,
             email
         });
         await user.save();
@@ -29,10 +31,10 @@ export async function createUser(req, res) {
 }
 
 export async function uploadResume(req, res) {
-    const email = req.body.email;
+    const firebase_id = req.body.firebase_id;
 
     try {
-        const user = await UserModel.findOne({ email });
+        const user = await UserModel.findOne({ firebase_id });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
