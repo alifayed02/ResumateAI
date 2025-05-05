@@ -4,16 +4,28 @@ import { Readable } from 'stream';
 
 import UserModel from '../models/user_model.js';
 import { resumesBucket } from '../config/mongo_connect.js';
+import admin from '../config/firebase_config.js';
 
 dotenv.config();
 
 const upload = multer();
 
 export async function createUser(req, res) {
-    const firebase_id = req.body.firebase_id;
-    const email = req.body.email;
-
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: 'No token provided or invalid format' });
+    }
+    
+    const token = authHeader.split('Bearer ')[1];
+    
     try {
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const firebase_id = decodedToken.uid;
+        const email = req.body.email;
+        
+        if (email !== decodedToken.email) {
+            return res.status(403).json({ message: 'Email mismatch between token and request' });
+        }
         const existingUser = await UserModel.findOne({ email });
         if (existingUser) {
             return res.status(409).json({ message: 'User already exists' });
@@ -26,6 +38,11 @@ export async function createUser(req, res) {
         res.status(201).json({ message: 'User created successfully' });
     } catch (error) {
         console.error('Failed to create user:', error);
+        if (error.code === 'auth/id-token-expired') {
+            return res.status(401).json({ message: 'Token expired' });
+        } else if (error.code && error.code.startsWith('auth/')) {
+            return res.status(401).json({ message: 'Invalid token' });
+        }
         res.status(500).json({ message: 'Failed to create user' });
     }
 }

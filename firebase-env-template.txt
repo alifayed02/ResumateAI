@@ -1,0 +1,13 @@
+# Firebase Admin SDK Configuration
+# Add these variables to your .env file
+
+# Option 1: Using service account credentials
+# FIREBASE_SERVICE_ACCOUNT_PATH=path/to/your/serviceAccountKey.json
+
+# Option 2: Using environment variables (recommended for production)
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=your-service-account-email@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYour private key content with \n for newlines\n-----END PRIVATE KEY-----\n"
+
+# Optional: If using Firebase Storage
+# FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
