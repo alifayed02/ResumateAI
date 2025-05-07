@@ -49,9 +49,22 @@ export async function createUser(req, res) {
 }
 
 export async function uploadResume(req, res) {
-    const firebase_id = req.body.firebase_id;
+    if(!req.body.resume || !req.body.firebase_id) {
+        console.error("Missing resume or firebase_id");
+        return res.status(400).json({ message: 'Missing resume or firebase_id' });
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: 'No token provided or invalid format' });
+    }
+    
+    const token = authHeader.split('Bearer ')[1];
 
     try {
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const firebase_id = decodedToken.uid;
+        
         const user = await UserModel.findOne({ firebase_id });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });

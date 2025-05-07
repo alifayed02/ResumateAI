@@ -1,23 +1,20 @@
 import admin from 'firebase-admin';
 import dotenv from 'dotenv';
-import path from 'path';
+import { readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const serviceAccount = JSON.parse(
+  await readFile("resumate-9896b-firebase-adminsdk-fbsvc-48c23515fd.json", 'utf8')
+);
 
 dotenv.config();
 
-// const firebaseConfig = {
-//   credential: admin.credential.cert({
-//     projectId: process.env.FIREBASE_PROJECT_ID,
-//     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-//     privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-//   }),
-// };
-
-// try {
-//   admin.initializeApp(firebaseConfig);
-//   console.log('Firebase Admin initialized successfully');
-// } catch (error) {
-//   console.error('Error initializing Firebase Admin:', error);
-// }
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
 
 export default admin;
