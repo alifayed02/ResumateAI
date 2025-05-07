@@ -14,6 +14,16 @@ const userSchema = new mongoose.Schema({
     resumeFileId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'resumes.files'
+    },
+    credits: {
+        type: Number,
+        required: true,
+        default: 0
+    },
+    membership: {
+        type: String,
+        required: true,
+        default: 'free'
     }
 });
 

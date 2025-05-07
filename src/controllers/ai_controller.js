@@ -10,14 +10,27 @@ import { pipeline } from 'stream/promises';
 
 import { resumesBucket } from '../config/mongo_connect.js';
 
+import UserModel from '../models/user_model.js';
+
 dotenv.config();
 
 const client = new OpenAI();
 
 export async function optimize(req, res) {
-	if(!req.body.resume_id || !req.body.job_description) {
-		return res.status(400).json({ message: 'Missing resume_id or job_description' });
+	if(!req.body.resume_id || !req.body.job_description || !req.body.firebase_id) {
+		return res.status(400).json({ message: 'Missing details in body' });
 	}
+
+	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	if(!user) {
+		return res.status(404).json({ message: 'User not found' });
+	}
+
+	if(user.credits < 1) {
+		console.log("Not enough credits");
+		return res.status(403).json({ message: 'Not enough credits' });
+	}
+
 	const resume_file_id = await createResumeFile(req.body.resume_id);
 
     let changes_accumulated = {};
@@ -30,6 +43,9 @@ export async function optimize(req, res) {
     await deleteResources(resume_file_id);
 
 	console.log(changes_accumulated);
+
+    user.credits -= 1;
+    await user.save();
 
     res.json({ message: 'Resume optimized successfully', changes_accumulated });
 }

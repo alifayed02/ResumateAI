@@ -32,7 +32,8 @@ export async function createUser(req, res) {
         }
         const user = new UserModel({
             firebase_id,
-            email
+            email,
+            credits: 1
         });
         await user.save();
         res.status(201).json({ message: 'User created successfully' });
