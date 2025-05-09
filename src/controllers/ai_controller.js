@@ -35,10 +35,17 @@ export async function optimize(req, res) {
 
     let changes_accumulated = {};
     const sections = await getSections(resume_file_id);
-    for (const section of sections) {
+    
+    const changePromises = sections.map(async (section) => {
         const changes = await getChanges(resume_file_id, section, req.body.job_description);
+        return { section, changes };
+    });
+    
+    const results = await Promise.all(changePromises);
+    
+    results.forEach(({ section, changes }) => {
         changes_accumulated[section] = changes;
-    }
+    });
 
     await deleteResources(resume_file_id);
 
