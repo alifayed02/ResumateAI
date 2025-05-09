@@ -22,11 +22,12 @@ app.use(cors({
     credentials: true,
 }));
 
-app.use(express.json());
+// app.use(express.json());
 
 // Log requests
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
+    console.log(req.body);
     next();
 });
 

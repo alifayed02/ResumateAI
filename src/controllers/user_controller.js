@@ -8,8 +8,6 @@ import admin from '../config/firebase_config.js';
 
 dotenv.config();
 
-const upload = multer();
-
 export async function createUser(req, res) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -49,13 +47,14 @@ export async function createUser(req, res) {
 }
 
 export async function uploadResume(req, res) {
-    if(!req.body.resume || !req.body.firebase_id) {
-        console.error("Missing resume or firebase_id");
+    if(!req.file) {
+        console.error("Missing resume file");
         return res.status(400).json({ message: 'Missing resume or firebase_id' });
     }
 
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        console.log("No token provided or invalid format");
         return res.status(401).json({ message: 'No token provided or invalid format' });
     }
     
