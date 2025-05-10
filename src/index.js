@@ -5,7 +5,7 @@ import helmet from 'helmet';
 
 import aiRoutes from './routes/ai_routes.js';
 import userRoutes from './routes/user_routes.js';
-
+import paymentRoutes from './routes/payment_route.js';
 import { connectDB } from './config/mongo_connect.js';
 
 dotenv.config();
@@ -22,12 +22,9 @@ app.use(cors({
     credentials: true,
 }));
 
-// app.use(express.json());
-
 // Log requests
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
-    console.log(req.body);
     next();
 });
 
@@ -37,6 +34,7 @@ app.get('/', (req, res) => {
 
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/user', userRoutes);
+app.use('/api/v1/payment', paymentRoutes);
 
 app.use((err, req, res, next) => {
     console.error(err.stack);
