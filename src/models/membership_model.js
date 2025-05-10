@@ -13,6 +13,10 @@ const subscriptionSchema = new mongoose.Schema({
     credits: {
         type: Number,
         required: true
+    },
+    stripe_price_id: {
+        type: String,
+        required: true
     }
 });
 
