@@ -87,7 +87,43 @@ export async function createSubscriptionSession(req, res) {
       console.error("Failed to create subscription session:", err);
       res.status(400).json({ error: err.message });
     }
-  }
+}
+
+export async function cancelSubscription(req, res) {
+    const { firebase_id } = req.body;
+
+    const user = await UserModel.findOne({ firebase_id });
+    if(!user) {
+        return res.status(404).json({ message: "User not found" });
+    }
+    
+    try {
+        await stripe.subscriptions.update(user.stripe_subscription_id, {
+            cancel_at_period_end: true,
+        });
+
+        const subscription = await stripe.subscriptions.retrieve(user.stripe_subscription_id);
+
+        console.log(subscription);
+
+        const endDate = new Date(subscription.cancel_at * 1000);
+
+        await UserModel.updateOne(
+            { firebase_id },
+            { 
+                $set: { 
+                    subscription: "cancelled",
+                    subscription_end: endDate
+                }
+            }
+        );
+    } catch (err) {
+      console.error("Failed to cancel subscription:", err);
+      res.status(400).json({ error: err.message });
+    }
+
+    res.json({ message: "Subscription cancelled" });
+}
 
 async function handleOneTimePayment(session, res) {
     const firebaseId = session.metadata?.firebase_id;
@@ -113,6 +149,7 @@ async function handleOneTimePayment(session, res) {
 async function handleSubscription(session, res) {
     const firebaseId = session.metadata.firebase_id;
     const membership = session.metadata.membership;
+    const subscriptionId = session.subscription;
 
     const user = await UserModel.findOne({ firebase_id: firebaseId });
 
@@ -130,8 +167,11 @@ async function handleSubscription(session, res) {
     await UserModel.updateOne(
         { firebase_id: firebaseId },
         {
-          $set: { membership: membership_details.name },
-          $inc: { credits: Number(membership_details.credits) }
+            $set: { 
+                membership: membership_details.name,
+                subscription: "active",
+                stripe_subscription_id: subscriptionId
+            }
         }
     );
 

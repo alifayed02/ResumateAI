@@ -26,9 +26,9 @@ export async function optimize(req, res) {
 		return res.status(404).json({ message: 'User not found' });
 	}
 
-	if(user.credits < 1) {
-		console.log("Not enough credits");
-		return res.status(403).json({ message: 'Not enough credits' });
+	if(user.credits < 1 && user.membership === "free") {
+		console.log("User has no credits or is not subscribed");
+		return res.status(403).json({ message: 'Please purchase credits or subscribe to Monthly Unlimited' });
 	}
 
 	const resume_file_id = await createResumeFile(req.body.resume_id);

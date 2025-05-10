@@ -55,6 +55,35 @@ export async function getUser(req, res) {
     res.status(200).json(user);
 }
 
+export async function validateUserMembership(req, res) {
+    const firebase_id = req.body.firebase_id;
+    
+    try {
+        const user = await UserModel.findOne({ firebase_id });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if(user.subscription === "active") {
+            return res.status(200).json({ message: 'Membership status validated'});
+        }
+
+        if (user.subscription_end && user.subscription_end < new Date()) {
+            if (user.membership !== 'free' || user.subscription !== 'inactive') {
+                user.membership = 'free';
+                user.subscription = 'inactive';
+                await user.save();
+            }
+        }
+
+        res.status(200).json({ message: 'Membership status validated'});
+
+    } catch (error) {
+        console.error('Failed to update user membership:', error);
+        res.status(500).json({ message: 'Failed to update user membership', error: error.message });
+    }
+}
+
 export async function uploadResume(req, res) {
     if(!req.file) {
         console.error("Missing resume file");

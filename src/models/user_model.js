@@ -24,6 +24,21 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
         default: 'free'
+    },
+    subscription: {
+        type: String,
+        required: true,
+        default: 'inactive'
+    },
+    stripe_subscription_id: {
+        type: String,
+        required: true,
+        default: ''
+    },
+    subscription_end: {
+        type: Date,
+        required: true,
+        default: null
     }
 });
 
