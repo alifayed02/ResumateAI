@@ -3,12 +3,13 @@ import express from 'express';
 
 import multer from 'multer';
 
-import { createUser, uploadResume } from '../controllers/user_controller.js';
+import { createUser, getUser,uploadResume } from '../controllers/user_controller.js';
 
 const router = Router();
 const upload = multer();
 
 router.post('/create', express.json(), createUser);
+router.post('/get', express.json(), getUser);
 router.post('/upload-resume', upload.single('file'), uploadResume);
 
 export default router;

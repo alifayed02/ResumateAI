@@ -46,6 +46,15 @@ export async function createUser(req, res) {
     }
 }
 
+export async function getUser(req, res) {
+    const firebase_id = req.body.firebase_id;
+    const user = await UserModel.findOne({ firebase_id });
+    if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json(user);
+}
+
 export async function uploadResume(req, res) {
     if(!req.file) {
         console.error("Missing resume file");
