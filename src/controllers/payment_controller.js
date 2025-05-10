@@ -8,35 +8,45 @@ dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-export async function createPaymentIntent(req, res) {
-    const { firebase_id, membership } = req.body;
+export async function createOneTimePaymentSession(req, res) {
+    const { firebase_id, credits } = req.body;
 
     const user = await UserModel.findOne({ firebase_id });
     if(!user) {
         return res.status(404).json({ message: 'User not found' });
     }
 
-    const membership_details = await MembershipModel.findOne({ name: membership });
-    if(!membership_details) {
-        return res.status(404).json({ message: 'Membership not found' });
-    }
+    const total = credits * 0.3 * 100
 
-    const amount_cents = membership_details.cost * 100;
     const currency = 'usd';
 
     try {
-        const intent = await stripe.paymentIntents.create({
-            amount: amount_cents,
-            currency: currency,
-            automatic_payment_methods: { enabled: true },
+        const session = await stripe.checkout.sessions.create({
+            mode: "payment",
+            payment_method_types: ["card"],
+            line_items: [
+              {
+                price_data: {
+                  currency: currency,
+                  product_data: {
+                    name: "Resume Optimization Credits",
+                  },
+                  unit_amount: total,
+                },
+                quantity: 1,
+              },
+            ],
+            success_url: "http://localhost:3000/profile",
+            cancel_url: "http://localhost:3000/",
             metadata: {
-                firebase_id: firebase_id,
-                membership: membership
-            }
-        });
-        res.json({ clientSecret: intent.client_secret });
+              firebase_id: firebase_id,
+              credits: credits
+            },
+          });
+
+          res.json({ sessionId: session.id });
     } catch (err) {
-        console.error('Failed to create payment intent:', err);
+        console.error('Failed to create payment session:', err);
         res.status(400).json({ error: err.message });
     }
 }
@@ -79,6 +89,55 @@ export async function createSubscriptionSession(req, res) {
     }
   }
 
+async function handleOneTimePayment(session, res) {
+    const firebaseId = session.metadata?.firebase_id;
+    const credits = session.metadata?.credits;
+
+    const user = await UserModel.findOne({ firebase_id: firebaseId });
+
+    if(!user) {
+        console.error('User not found');
+        return res.status(404).send('User not found');
+    }
+
+    await UserModel.updateOne(
+        { firebase_id: firebaseId },
+        {
+          $inc: { credits: Number(credits) }
+        }
+    );
+
+    console.log("Payment intent handled");
+}
+
+async function handleSubscription(session, res) {
+    const firebaseId = session.metadata.firebase_id;
+    const membership = session.metadata.membership;
+
+    const user = await UserModel.findOne({ firebase_id: firebaseId });
+
+    if(!user) {
+        console.error('User not found');
+        return res.status(404).send('User not found');
+    }
+
+    const membership_details = await MembershipModel.findOne({ name: membership });
+    if(!membership_details) {
+        console.error('Membership not found');
+        return res.status(404).send('Membership not found');
+    }
+
+    await UserModel.updateOne(
+        { firebase_id: firebaseId },
+        {
+          $set: { membership: membership_details.name },
+          $inc: { credits: Number(membership_details.credits) }
+        }
+    );
+
+    console.log("Checkout session handled");
+}
+
 export async function webhook(req, res) {
     console.log("Webhook received");
     const sig = req.headers["stripe-signature"];
@@ -97,60 +156,17 @@ export async function webhook(req, res) {
 
     switch (event.type) {
         case "checkout.session.completed":
-            await handleCheckoutSession(event, res);
+            const session = event.data.object;
+            switch(session.mode) {
+                case "subscription":
+                    await handleSubscription(session, res);
+                    break;
+                case "payment":
+                    await handleOneTimePayment(session, res);
+                    break;
+            }
             break;
     }
 
     res.json({ received: true });
-}
-
-// TODO: Rewrite this to handle one time credit payments
-async function handlePaymentIntent(event, res) {
-    const session = event.data.object;
-    const firebaseId = session.metadata?.firebase_id;
-    const membership = session.metadata?.membership;
-
-    const user = await UserModel.findOne({ firebase_id: firebaseId });
-
-    if(!user) {
-        console.error('User not found');
-        return res.status(404).send('User not found');
-    }
-
-    const membership_details = await MembershipModel.findOne({ name: membership });
-    if(!membership_details) {
-        console.error('Membership not found');
-        return res.status(404).send('Membership not found');
-    }
-
-    user.membership = membership_details.name;
-    user.credits += membership_details.credits;
-    await user.save();
-
-    console.log("Payment intent handled");
-}
-
-async function handleCheckoutSession(event, res) {
-    const session = event.data.object;
-    const firebaseId = session.metadata.firebase_id;
-    const membership = session.metadata.membership;
-
-    const user = await UserModel.findOne({ firebase_id: firebaseId });
-
-    if(!user) {
-        console.error('User not found');
-        return res.status(404).send('User not found');
-    }
-
-    const membership_details = await MembershipModel.findOne({ name: membership });
-    if(!membership_details) {
-        console.error('Membership not found');
-        return res.status(404).send('Membership not found');
-    }
-
-    user.membership = membership_details.name;
-    user.credits += membership_details.credits;
-    await user.save();
-
-    console.log("Checkout session handled");
 }
