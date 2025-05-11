@@ -225,6 +225,7 @@ async function generateResume(resume_file_id, changes_accumulated) {
 							["old bullet 2", "new bullet 2"]\n
 							]\n
 							}\n\n
+							You are to replace the exact old bullets in the resume with the exact new bullets. Do NOT change anything else. \n\n
 							Give me JUST the resulting LaTeX, nothing more nothing less. DO NOT format it in a code block/syntax highlighting, and DO NOT include citations. Make sure necessary characters are escaped with a \\ (like #, %, etc.). It is crucial that the LaTeX is valid.\n
 							--\n
 							<changes>\n` + JSON.stringify(changes_accumulated) + `\n</changes>\n\n
