@@ -1,9 +1,10 @@
 import dotenv from 'dotenv';
 import multer from 'multer';
 import { Readable } from 'stream';
+import { ObjectId } from 'mongodb';
 
 import UserModel from '../models/user_model.js';
-import { resumesBucket } from '../config/mongo_connect.js';
+import { resumesBucket, optimizedResumesBucket } from '../config/mongo_connect.js';
 import admin from '../config/firebase_config.js';
 
 dotenv.config();
@@ -153,7 +154,62 @@ export async function uploadResume(req, res) {
 }
 
 export async function retrieveResume(req, res) {
-    const email = req.body.email;
+    const firebase_id = req.body.firebase_id;
+    if (!firebase_id) {
+        return res.status(400).json({ message: 'Firebase ID is required' });
+    }
 
-    
+    try {
+        const user = await UserModel.findOne({ firebase_id });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        const optimizedResumeIdString = user.optimizedResumeFileId;
+        if (!optimizedResumeIdString) {
+            return res.status(404).json({ message: 'No optimized resume found for this user' });
+        }
+
+        const optimizedResumeId = new ObjectId(optimizedResumeIdString);
+
+        // Optional: Check if file exists in GridFS metadata before attempting to stream
+        const filesColl = optimizedResumesBucket.s.db.collection('optimized_resumes.files');
+        const fileDoc = await filesColl.findOne({ _id: optimizedResumeId });
+
+        if (!fileDoc) {
+            console.error(`Optimized resume file not found in GridFS for ID: ${optimizedResumeIdString}`);
+            return res.status(404).json({ message: 'Optimized resume file not found in storage' });
+        }
+
+        // Set headers for PDF download
+        // Using a generic filename, or you can use fileDoc.filename if available and preferred
+        const downloadFileName = fileDoc.filename || `${user._id}_optimized_resume.pdf`; 
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFileName}"`);
+
+        const downloadStream = optimizedResumesBucket.openDownloadStream(optimizedResumeId);
+
+        downloadStream.on('error', (error) => {
+            console.error('Error streaming optimized resume from GridFS:', error);
+            // Important: Check if headers have already been sent
+            if (!res.headersSent) {
+                res.status(500).json({ message: 'Failed to retrieve optimized resume' });
+            } else {
+                // If headers are sent, the connection will likely be terminated by the client or hang
+                // It's good practice to end the response if possible, though it might be too late.
+                res.end(); 
+            }
+        });
+
+        downloadStream.pipe(res);
+
+    } catch (error) {
+        console.error('Error in retrieveResume function:', error);
+        if (!res.headersSent) {
+            if (error instanceof mongoose.Error.CastError || error.name === 'BSONTypeError') {
+                 return res.status(400).json({ message: 'Invalid optimized resume file ID format' });
+            }
+            res.status(500).json({ message: 'Server error while retrieving resume' });
+        }
+    }
 }

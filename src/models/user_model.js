@@ -15,6 +15,10 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'resumes.files'
     },
+    optimizedResumeFileId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'optimized_resumes.files'
+    },
     credits: {
         type: Number,
         required: true,

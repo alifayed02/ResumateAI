@@ -5,6 +5,7 @@ import { GridFSBucket } from 'mongodb';
 dotenv.config();
 
 let resumesBucket;
+let optimizedResumesBucket;
 
 export async function connectDB() {
     try {
@@ -15,9 +16,12 @@ export async function connectDB() {
         resumesBucket = new GridFSBucket(db, {
             bucketName: 'resumes'
         });
+        optimizedResumesBucket = new GridFSBucket(db, {
+            bucketName: 'optimized_resumes'
+        });
     } catch (error) {
         console.error('MongoDB connection error:', error);
     }
 };
 
-export { resumesBucket };
+export { resumesBucket, optimizedResumesBucket };

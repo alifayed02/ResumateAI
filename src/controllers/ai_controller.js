@@ -7,8 +7,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { pipeline } from 'stream/promises';
+import { exec } from 'child_process';
 
-import { resumesBucket } from '../config/mongo_connect.js';
+import { resumesBucket, optimizedResumesBucket } from '../config/mongo_connect.js';
 
 import UserModel from '../models/user_model.js';
 
@@ -46,6 +47,18 @@ export async function optimize(req, res) {
     results.forEach(({ section, changes }) => {
         changes_accumulated[section] = changes;
     });
+
+    const generatedLatex = await generateResume(resume_file_id, changes_accumulated);
+    if (generatedLatex) {
+        try {
+            const fileId = await uploadPDF(generatedLatex, user);
+            console.log("Optimized PDF processing completed, fileId:", fileId);
+        } catch (error) {
+            console.error("Error during PDF generation or upload:", error);
+            // Decide if this error should be sent to the client or just logged
+            // For now, let's assume the main operation can continue or has other error handling
+        }
+    }
 
     await deleteResources(resume_file_id);
 
@@ -185,6 +198,157 @@ async function getChanges(resume_file_id, section, job_description) {
 		console.log("[Error] Raw message:", last_message);
 		return null;
 	}
+}
+
+async function generateResume(resume_file_id, changes_accumulated) {
+	const response = await client.responses.create({
+		model: "gpt-4o-mini",
+		input: [
+			{
+				role: "user",
+				content: [
+					{
+						type: "input_file",
+						file_id: resume_file_id
+					},
+					{
+						type: "input_text",
+						text: `You are an expert in generating human readable and ATS parsable LaTeX resumes. You are also an expert in LaTex syntax and can write LaTeX code with ease. You will help me create a resume in LaTeX given an example format.\n\n
+							Below you are given three things: an original resume (attached as a document), a JSON of changes to make in that resume (wrapped in a <changes> tag), and an example resume written in LaTeX (wrapped in a <latex> tag).\n\n
+							The JSON of changes to make is written in this format:\n\n{
+							ResumeSection1: [\n
+							["old bullet 1", "new bullet 1"],\n
+							["old bullet 2", "new bullet 2"]\n
+							],
+							ResumeSection2: [\n
+							["old bullet 1", "new bullet 1"],\n
+							["old bullet 2", "new bullet 2"]\n
+							]\n
+							}\n\n
+							Give me JUST the resulting LaTeX, nothing more nothing less. DO NOT format it in a code block/syntax highlighting, and DO NOT include citations. Make sure necessary characters are escaped with a \\ (like #, %, etc.). It is crucial that the LaTeX is valid.\n
+							--\n
+							<changes>\n` + JSON.stringify(changes_accumulated) + `\n</changes>\n\n
+							<latex>\n` 
+							+ `\\documentclass[letterpaper,11pt]{article}\n\n\\usepackage{latexsym}\n\\usepackage[empty]{fullpage}\n\\usepackage{titlesec}\n\\usepackage{marvosym}\n\\usepackage[usenames,dvipsnames]{color}\n\\usepackage{enumitem}\n\\usepackage[hidelinks]{hyperref}\n\\usepackage{fancyhdr}\n\\usepackage[english]{babel}\n\\usepackage{tabularx}\n\n\\input{glyphtounicode}\n\n\\pagestyle{fancy}\n\\fancyhf{}\n\\fancyfoot{}\n\\renewcommand{\\headrulewidth}{0pt}\n\\renewcommand{\\footrulewidth}{0pt}\n\n\\addtolength{\\oddsidemargin}{-0.5in}\n\\addtolength{\\evensidemargin}{-0.5in}\n\\addtolength{\\textwidth}{1in}\n\\addtolength{\\topmargin}{-0.5in}\n\\addtolength{\\textheight}{1.0in}\n\n\\urlstyle{same}\n\\raggedbottom\n\\raggedright\n\\setlength{\\tabcolsep}{0in}\n\n\\titleformat{\\section}{\n  \\vspace{-10pt}\\scshape\\raggedright\\large\\bfseries\n}{}{0em}{}[\\color{black}\\titlerule \\vspace{-4pt}]\n\n\\pdfgentounicode=1\n\n\\newcommand{\\resumeSubheading}[4]{\n  \\vspace{-2pt}\\item\n    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{#1} & \\textbf{#2} \\\\\n      \\textit{\\small#3} & \\textit{\\small #4} \\\\\n    \\end{tabular*}\\vspace{-8pt}\n}\n\n\\newcommand{\\resumeProjectHeading}[3]{\n  \\item\\small{\n    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{#1} $\\vert$ \\textit{#2} & \\textbf{#3} \\\\\n    \\end{tabular*}\\vspace{-6pt}\n  }\n}\n\n\\newcommand{\\resumeEducation}[5]{\n  \\vspace{-4pt}\\item\n    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{#1} & \\textbf{#2} \\\\\n      \\textit{\\small#3} & \\textit{\\small #4}\n    \\end{tabular*}\\\\[0pt]\n    \\begin{tabular*}{0.97\\textwidth}[t]{p{0.97\\textwidth}}\n        \\small{#5}\n    \\end{tabular*}\n}\n\n\\newcommand{\\resumeSkills}[1]{\n    \\item\\small{#1}\n}\n\n\\newcommand{\\resumeItem}[1]{\\item\\small{#1 \\vspace{-2pt}}}\n\\newcommand{\\resumeSubHeadingListStart}{\\begin{itemize}[leftmargin=0in, label={}]}\n\\newcommand{\\resumeSubHeadingListEnd}{\\end{itemize}}\n\\newcommand{\\resumeItemListStart}{\\begin{itemize}[leftmargin=0.15in, label={{\\footnotesize \\textbullet}}]}\n\\newcommand{\\resumeItemListEnd}{\\end{itemize}\\vspace{-4pt}}\n\n\\begin{document}\n\n%-----------Title (Name, Location, Number, Email, Links)-----------\n\\begin{center}\n    \\textbf{\\Huge \\scshape FirstName LastName} \\\\ \\vspace{4pt}\n    \\small Location $|$ Phone number $|$ \\href{mailto:email@example.com}{\\underline{email@example.com}} $|$ \n    \\href{https://www.linkedin.com/in/example/}{\\underline{linkedin.com/in/example}}\n    $|$ \\href{https://github.com/example}   \n\n\\end{center}\n\n%-----------EDUCATION-----------\n\\section{Education}\n\\resumeSubHeadingListStart\n    \\resumeEducation\n      {School Name}{Graduation Date}\n      {Major}{Location}\n      {Relevant Coursework: List of courses}\n\\resumeSubHeadingListEnd\n\n%-----------TECHNICAL SKILLS-----------\n\\section{Technical Skills}\n\\vspace{0pt}  % Reduce space after section title\n\\resumeSubHeadingListStart\n    \\resumeSkills{Languages: Language1, Language 2\\\\\n    Libraries: Library1, Library2\\\\\n    Tools: Tool1, Tool2}\n\\resumeSubHeadingListEnd\n\\vspace{-10pt} \n\n%-----------EXPERIENCE-----------\n\\section{Experience}\n\\resumeSubHeadingListStart\n    \\resumeSubheading{Company Name}{\\textbf{Start Date -- End Date}}\n      {Role Title}{Location}\n    \\resumeItemListStart\n      \\resumeItem{Resume point 1. \\textless{} this is a less than symbol}\n      \\resumeItem{\\textbf{Bolded} words are emphasized. \\textgreater{} this is a greater than symbol}\n    \\resumeItemListEnd\n\\resumeSubHeadingListEnd\n\n%-----------PROJECTS-----------\n\\section{Projects}\n\\resumeSubHeadingListStart\n    \\resumeProjectHeading{Project Name}{Languages/Tools used}{Start Date - End Date}\n    \\resumeItemListStart\n      \\resumeItem{Resume point 1. \\% this is a percent symbol}\n      \\resumeItem{\\textbf{Bolded} words are emphasized. \\ensuremath{\\approx} this is the approximate symbol}\n    \\resumeItemListEnd\n\n    \\resumeProjectHeading{Project Name}{Languages/Tools used}{Start Date - End Date}\n    \\resumeItemListStart\n      \\resumeItem{Resume point 1}\n      \\resumeItem{\\textbf{Bolded} words are emphasized}\n    \\resumeItemListEnd\n\\resumeSubHeadingListEnd\n\n\\end{document}` +
+							`\n</latex>\n\n`
+					}
+				]
+			}
+		]
+	});
+
+	if(!response.output_text) {
+		return null;
+	}
+
+	const source = response.output_text;
+
+	try {
+		console.log("[Debug] LaTeX: ", source);
+        return source;
+	} catch (error) {
+		console.error(`[Error] Error processing LaTeX response:`, error);
+		console.log("[Error] Raw message:", source);
+		return null;
+	}
+}
+
+async function uploadPDF(source, user) {
+    const firebase_id = user.firebase_id;
+    const tmpDir = os.tmpdir();
+    const timestamp = Date.now(); // For unique filenames
+    const baseFileName = `${firebase_id}_${timestamp}_optimized_resume`;
+    
+    const texFilePath = path.join(tmpDir, `${baseFileName}.tex`);
+    const pdfFilePath = path.join(tmpDir, `${baseFileName}.pdf`);
+    const auxFilePath = path.join(tmpDir, `${baseFileName}.aux`);
+    const logFilePath = path.join(tmpDir, `${baseFileName}.log`);
+
+    const cleanupFiles = async () => {
+        const filesToDelete = [texFilePath, pdfFilePath, auxFilePath, logFilePath];
+        for (const filePath of filesToDelete) {
+            try {
+                await fs.promises.unlink(filePath);
+                console.log(`Deleted temporary file: ${filePath}`);
+            } catch (err) {
+                if (err.code !== 'ENOENT') { // Ignore if file not found
+                    console.error(`Error deleting temporary file ${filePath}:`, err);
+                }
+            }
+        }
+    };
+
+    return new Promise(async (resolve, reject) => {
+        try {
+            await fs.promises.writeFile(texFilePath, source, 'utf8');
+            console.log(`Temporary .tex file created: ${texFilePath}`);
+
+            const pdflatexCommand = `pdflatex -interaction=nonstopmode "${baseFileName}.tex"`;
+            
+            await new Promise((resolveCmd, rejectCmd) => {
+                exec(pdflatexCommand, { cwd: tmpDir }, (error, stdout, stderr) => {
+                    if (error) {
+                        console.error(`pdflatex execution failed for ${baseFileName}.tex:`, error);
+                        console.error('pdflatex stderr:', stderr);
+                        console.error('pdflatex stdout:', stdout);
+                        return rejectCmd(new Error(`pdflatex failed: ${error.message}. Stderr: ${stderr}. Stdout: ${stdout}`));
+                    }
+                    console.log(`pdflatex stdout for ${baseFileName}.tex:`, stdout);
+                    if (stderr) {
+                        console.warn(`pdflatex stderr for ${baseFileName}.tex:`, stderr); // LaTeX often has warnings
+                    }
+                    // Verify PDF was created
+                    fs.access(pdfFilePath, fs.constants.F_OK, (err) => {
+                        if (err) {
+                           console.error(`PDF file not found after pdflatex execution: ${pdfFilePath}`);
+                           return rejectCmd(new Error(`pdflatex completed but PDF file not found at ${pdfFilePath}. Review stdout/stderr for details. Stdout: ${stdout}. Stderr: ${stderr}`));
+                        }
+                        resolveCmd(stdout);
+                    });
+                });
+            });
+            console.log(`PDF generated successfully: ${pdfFilePath}`);
+
+            const readablePdfStream = fs.createReadStream(pdfFilePath);
+            const gridFsFileName = `${user._id}-optimized-resume-${timestamp}.pdf`;
+            const uploadStream = optimizedResumesBucket.openUploadStream(gridFsFileName, {
+                contentType: 'application/pdf',
+                metadata: {
+                    userId: user._id,
+                    email: user.email,
+                    originalFilename: `${baseFileName}.pdf`
+                }
+            });
+
+            readablePdfStream.pipe(uploadStream)
+                .on('error', (uploadError) => {
+                    console.error('Error uploading optimized PDF to GridFS:', uploadError);
+                    reject(uploadError); 
+                })
+                .on('finish', async () => {
+                    try {
+                        user.optimizedResumeFileId = uploadStream.id;
+                        await user.save();
+                        console.log(`Optimized PDF uploaded to GridFS successfully for user ${user._id}, fileId: ${uploadStream.id}`);
+                        resolve(uploadStream.id);
+                    } catch (saveError) {
+                        console.error('Failed to save user after optimized PDF upload:', saveError);
+                        reject(saveError);
+                    }
+                });
+
+        } catch (error) {
+            console.error('Error in uploadPDF process:', error);
+            reject(error);
+        } finally {
+            // Ensure cleanup runs after promise settles, by awaiting it if not already done
+            // However, direct await here in finally might be tricky with promise constructor
+            // Let's call it and not let its failure reject the main promise if it already settled
+            cleanupFiles().catch(cleanupError => {
+                console.error("Error during final cleanup:", cleanupError);
+            });
+        }
+    });
 }
 
 async function deleteResume(resume_id) {
