@@ -12,7 +12,7 @@ dotenv.config();
 export async function createUser(req, res) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ message: 'No token provided or invalid format' });
+        return res.status(401).json({ message: 'We encountered an unexpected problem. Please refresh and try again.' });
     }
     
     const token = authHeader.split('Bearer ')[1];
@@ -23,11 +23,11 @@ export async function createUser(req, res) {
         const email = req.body.email;
         
         if (email !== decodedToken.email) {
-            return res.status(403).json({ message: 'Email mismatch between token and request' });
+            return res.status(403).json({ message: 'We encountered a problem optimizing your resume. Please refresh and try again.' });
         }
         const existingUser = await UserModel.findOne({ email });
         if (existingUser) {
-            return res.status(409).json({ message: 'User already exists' });
+            return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
         }
         const user = new UserModel({
             firebase_id,

@@ -36,12 +36,12 @@ const userSchema = new mongoose.Schema({
     },
     stripe_subscription_id: {
         type: String,
-        required: true,
+        required: false,
         default: ''
     },
     subscription_end: {
         type: Date,
-        required: true,
+        required: false,
         default: null
     }
 });

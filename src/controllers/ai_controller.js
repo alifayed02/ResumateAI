@@ -202,7 +202,7 @@ async function getChanges(resume_file_id, section, job_description) {
 
 async function generateResume(resume_file_id, changes_accumulated) {
 	const response = await client.responses.create({
-		model: "gpt-4o-mini",
+		model: "gpt-4.1-mini",
 		input: [
 			{
 				role: "user",
@@ -289,10 +289,10 @@ async function uploadPDF(source, user) {
             await new Promise((resolveCmd, rejectCmd) => {
                 exec(pdflatexCommand, { cwd: tmpDir }, (error, stdout, stderr) => {
                     if (error) {
-                        console.error(`pdflatex execution failed for ${baseFileName}.tex:`, error);
-                        console.error('pdflatex stderr:', stderr);
-                        console.error('pdflatex stdout:', stdout);
-                        return rejectCmd(new Error(`pdflatex failed: ${error.message}. Stderr: ${stderr}. Stdout: ${stdout}`));
+                        console.error(`[UploadError] pdflatex execution failed for ${baseFileName}.tex:`, error);
+                        console.error('[UploadError]pdflatex stderr:', stderr);
+                        console.error('[UploadError]pdflatex stdout:', stdout);
+                        // return rejectCmd(new Error(`[UploadError] pdflatex failed: ${error.message}. Stderr: ${stderr}. Stdout: ${stdout}`));
                     }
                     console.log(`pdflatex stdout for ${baseFileName}.tex:`, stdout);
                     if (stderr) {
@@ -301,8 +301,8 @@ async function uploadPDF(source, user) {
                     // Verify PDF was created
                     fs.access(pdfFilePath, fs.constants.F_OK, (err) => {
                         if (err) {
-                           console.error(`PDF file not found after pdflatex execution: ${pdfFilePath}`);
-                           return rejectCmd(new Error(`pdflatex completed but PDF file not found at ${pdfFilePath}. Review stdout/stderr for details. Stdout: ${stdout}. Stderr: ${stderr}`));
+                           console.error(`[UploadError] PDF file not found after pdflatex execution: ${pdfFilePath}`);
+                           return rejectCmd(new Error(`[UploadError] pdflatex completed but PDF file not found at ${pdfFilePath}. Review stdout/stderr for details. Stdout: ${stdout}. Stderr: ${stderr}`));
                         }
                         resolveCmd(stdout);
                     });
@@ -323,7 +323,7 @@ async function uploadPDF(source, user) {
 
             readablePdfStream.pipe(uploadStream)
                 .on('error', (uploadError) => {
-                    console.error('Error uploading optimized PDF to GridFS:', uploadError);
+                    console.error('[UploadError] Error uploading optimized PDF to GridFS:', uploadError);
                     reject(uploadError); 
                 })
                 .on('finish', async () => {
@@ -333,20 +333,20 @@ async function uploadPDF(source, user) {
                         console.log(`Optimized PDF uploaded to GridFS successfully for user ${user._id}, fileId: ${uploadStream.id}`);
                         resolve(uploadStream.id);
                     } catch (saveError) {
-                        console.error('Failed to save user after optimized PDF upload:', saveError);
+                        console.error('[UploadError] Failed to save user after optimized PDF upload:', saveError);
                         reject(saveError);
                     }
                 });
 
         } catch (error) {
-            console.error('Error in uploadPDF process:', error);
+            console.error('[UploadError] Error in uploadPDF process:', error);
             reject(error);
         } finally {
             // Ensure cleanup runs after promise settles, by awaiting it if not already done
             // However, direct await here in finally might be tricky with promise constructor
             // Let's call it and not let its failure reject the main promise if it already settled
             cleanupFiles().catch(cleanupError => {
-                console.error("Error during final cleanup:", cleanupError);
+                console.error("[UploadError] Error during final cleanup:", cleanupError);
             });
         }
     });
