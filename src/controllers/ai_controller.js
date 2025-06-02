@@ -8,6 +8,7 @@ import path from 'path';
 import os from 'os';
 import { pipeline } from 'stream/promises';
 import { exec } from 'child_process';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 import { resumesBucket, optimizedResumesBucket } from '../config/mongo_connect.js';
 
@@ -32,10 +33,16 @@ export async function optimize(req, res) {
 		return res.status(403).json({ message: 'Please purchase credits or subscribe to Monthly Unlimited' });
 	}
 
-	const resume_file_id = await createResumeFile(req.body.resume_id);
+	const { resume_id: resume_file_id, links } = await createResumeFile(req.body.resume_id);
 
     let changes_accumulated = {};
-    const sections = await getSections(resume_file_id);
+    const info = await getInfo(resume_file_id);
+	
+	// Add extracted links to the info object
+	info.info.links = links;
+	
+	const details = info.info;
+	const sections = info.sections;
     
     const changePromises = sections.map(async (section) => {
         const changes = await getChanges(resume_file_id, section, req.body.job_description);
@@ -48,15 +55,13 @@ export async function optimize(req, res) {
         changes_accumulated[section] = changes;
     });
 
-    const generatedLatex = await generateResume(resume_file_id, changes_accumulated);
+    const generatedLatex = await generateResume(resume_file_id, changes_accumulated, details);
     if (generatedLatex) {
         try {
             const fileId = await uploadPDF(generatedLatex, user);
             console.log("Optimized PDF processing completed, fileId:", fileId);
         } catch (error) {
             console.error("Error during PDF generation or upload:", error);
-            // Decide if this error should be sent to the client or just logged
-            // For now, let's assume the main operation can continue or has other error handling
         }
     }
 
@@ -84,6 +89,16 @@ async function createResumeFile(resume_file_id) {
 	  fs.createWriteStream(tmpPath)
 	);
 	
+	// Extract links from the PDF before uploading to OpenAI
+	let extractedLinks = [];
+	try {
+		extractedLinks = await getLinks(tmpPath);
+		console.log(`Extracted ${extractedLinks.length} links from PDF`);
+	} catch (error) {
+		console.error(`Error extracting links from PDF:`, error);
+		// Continue without links if extraction fails
+	}
+	
 	const file = await client.files.create({
 		file: fs.createReadStream(tmpPath), 
 		purpose: "user_data"
@@ -99,12 +114,36 @@ async function createResumeFile(resume_file_id) {
 
 	const resume_id = file.id;
 	console.log(`OpenAI file created successfully with ID: ${resume_id}`);
-	return resume_id;
+	return { resume_id, links: extractedLinks };
 }
 
-async function getSections(resume_file_id) {
+async function getLinks(filePath) {
+	const data = new Uint8Array(fs.readFileSync(filePath));
+
+	const loadingTask = pdfjsLib.getDocument({ data });
+	const pdfDocument = await loadingTask.promise;
+
+	const urls = new Set();
+
+	for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+		const page = await pdfDocument.getPage(pageNum);
+
+		const annotations = await page.getAnnotations();
+
+		for (const annot of annotations) {
+			if (annot.subtype === "Link" && annot.url) {
+				urls.add(annot.url);
+			} else if (annot.subtype === "Link" && annot.dest) {
+			}
+		}
+	}
+
+	return Array.from(urls);
+}
+
+async function getInfo(resume_file_id) {
 	const response = await client.responses.create({
-		model: "gpt-4.1-mini",
+		model: "gpt-4o-mini",
 		input: [
 			{
 				role: "user",
@@ -115,28 +154,41 @@ async function getSections(resume_file_id) {
 					},
 					{
 						type: "input_text",
-						text: "Look at the input resume file and tell me the list of sections this file has. Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activies, Languages, Volunteering Experience, Hobbies & Interests."
+						text: `Look at the input resume file and tell me the list of sections this file has. 
+						Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activies, Languages, 
+						Volunteering Experience, Hobbies & Interests.
+						
+						I want you to also extract the candidate's full name, location, phone number, and email.`
 					}
 				]
 			}
 		],
 		text: {
 			format: {
-				type: "json_schema",
-				name: "sections",
-				schema: {
+			  	type: "json_schema",
+			  	name: "resume_data",
+			  	schema: {
 					type: "object",
 					properties: {
+						info: {
+							type: "object",
+							properties: {
+								name:       { type: "string" },
+								location:   { type: "string" },
+								number:     { type: "string" },
+								email:      { type: "string", format: "email" },
+							},
+							required: ["name", "location", "number", "email"],
+							additionalProperties: false
+						},
 						sections: {
 							type: "array",
-							items: {
-								type: "string"
-							}
+							items: { type: "string" }
 						}
 					},
-					required: ["sections"],
+					required: ["info", "sections"],
 					additionalProperties: false
-				}
+			  	}
 			}
 		}
 	});
@@ -148,9 +200,9 @@ async function getSections(resume_file_id) {
 
 	const last_message = response.output_text;
 	console.log("[Debug] Sections: ", last_message);
-	const sections = JSON.parse(last_message);
+	const info = JSON.parse(last_message);
 
-	return sections.sections;
+	return info;
 }
 
 async function getChanges(resume_file_id, section, job_description) {
@@ -166,7 +218,30 @@ async function getChanges(resume_file_id, section, job_description) {
 					},
 					{
 						type: "input_text",
-						text: `You are an expert in making resumes that catch the attention of recruiters and hiring managers.\n\nUsing the uploaded file and the job description, optimize the \"${section}\" section to make this uploaded resume file the best possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, with extra emphasis on recurring terms.\n\nFor every line that you change, give me the EXACT old line in FULL as well as the new line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.\n\nAim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT include citations. Ensure the JSON is in valid format:\n\n{\n\"changes\": {\n\"0\": [\"Old line\", \"New Line\"],\n\"1\": [\"Another old line\", \"Another new line\"]\n}\n\nBelow is the job description:\n–` + job_description
+						text: `You are an expert in making resumes that catch the attention of recruiters and hiring managers.
+						
+						Using the uploaded file and the job description, optimize the \"${section}\" section to make this uploaded resume file the best 
+						possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, 
+						with extra emphasis on recurring terms.
+
+						Make sure you are only looking at the \"${section}\" section and make sure the tailored bullet point agrees with the context of the original bullet point.
+						
+						For every line that you change, give me the EXACT old line in FULL as well as the new 
+						line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.
+						
+						Aim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want 
+						from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT 
+						include citations. Ensure the JSON is in valid format:
+						
+						{
+						\"changes\": {
+						\"0\": [\"Old line\", \"New Line\"],
+						\"1\": [\"Another old line\", \"Another new line\"]
+						}
+
+						Below is the job description:
+						
+						` + job_description
 					}
 				]
 			}
@@ -200,7 +275,7 @@ async function getChanges(resume_file_id, section, job_description) {
 	}
 }
 
-async function generateResume(resume_file_id, changes_accumulated) {
+async function generateResume(resume_file_id, changes_accumulated, details) {
 	const response = await client.responses.create({
 		model: "gpt-4.1-mini",
 		input: [
@@ -214,24 +289,38 @@ async function generateResume(resume_file_id, changes_accumulated) {
 					{
 						type: "input_text",
 						text: `You are an expert in generating human readable and ATS parsable LaTeX resumes. You are also an expert in LaTex syntax and can write LaTeX code with ease. You will help me create a resume in LaTeX given an example format.\n\n
-							Below you are given three things: an original resume (attached as a document), a JSON of changes to make in that resume (wrapped in a <changes> tag), and an example resume written in LaTeX (wrapped in a <latex> tag).\n\n
-							The JSON of changes to make is written in this format:\n\n{
-							ResumeSection1: [\n
-							["old bullet 1", "new bullet 1"],\n
-							["old bullet 2", "new bullet 2"]\n
-							],
-							ResumeSection2: [\n
-							["old bullet 1", "new bullet 1"],\n
-							["old bullet 2", "new bullet 2"]\n
-							]\n
-							}\n\n
-							You are to replace the exact old bullets in the resume with the exact new bullets. Do NOT change anything else. \n\n
+							Below you are given four pieces of information: an original resume (attached as a document), a JSON of changes to make in that resume (wrapped in a <changes> tag), a JSON of personal details regarding the resume (wrapped in a <details> tag), and an example resume written in LaTeX (wrapped in a <latex> tag).\n\n
+							
+							The JSON of changes to make is written in this format:
+							
+							{
+								ResumeSection1: [
+									["old bullet 1", "new bullet 1"],
+									["old bullet 2", "new bullet 2"]
+								],
+								ResumeSection2: [
+									["old bullet 1", "new bullet 1"],
+									["old bullet 2", "new bullet 2"]
+								]
+							}
+
+							You are to replace the exact old bullets in the resume with the exact new bullets. Make sure personal details, project names & dates, company names & dates, tools use, etc. are correctly included. Do NOT change anything else.
+
 							Give me JUST the resulting LaTeX, nothing more nothing less. DO NOT format it in a code block/syntax highlighting, and DO NOT include citations. Make sure necessary characters are escaped with a \\ (like #, %, etc.). It is crucial that the LaTeX is valid.\n
-							--\n
-							<changes>\n` + JSON.stringify(changes_accumulated) + `\n</changes>\n\n
-							<latex>\n` 
+							
+							--
+
+							<changes>
+							` + JSON.stringify(changes_accumulated) + `
+							</changes>
+
+							<details>
+							` + JSON.stringify(details) + `
+							</details>
+							
+							<latex>` 
 							+ `\\documentclass[letterpaper,11pt]{article}\n\n\\usepackage{latexsym}\n\\usepackage[empty]{fullpage}\n\\usepackage{titlesec}\n\\usepackage{marvosym}\n\\usepackage[usenames,dvipsnames]{color}\n\\usepackage{enumitem}\n\\usepackage[hidelinks]{hyperref}\n\\usepackage{fancyhdr}\n\\usepackage[english]{babel}\n\\usepackage{tabularx}\n\n\\input{glyphtounicode}\n\n\\pagestyle{fancy}\n\\fancyhf{}\n\\fancyfoot{}\n\\renewcommand{\\headrulewidth}{0pt}\n\\renewcommand{\\footrulewidth}{0pt}\n\n\\addtolength{\\oddsidemargin}{-0.5in}\n\\addtolength{\\evensidemargin}{-0.5in}\n\\addtolength{\\textwidth}{1in}\n\\addtolength{\\topmargin}{-0.5in}\n\\addtolength{\\textheight}{1.0in}\n\n\\urlstyle{same}\n\\raggedbottom\n\\raggedright\n\\setlength{\\tabcolsep}{0in}\n\n\\titleformat{\\section}{\n  \\vspace{-10pt}\\scshape\\raggedright\\large\\bfseries\n}{}{0em}{}[\\color{black}\\titlerule \\vspace{-4pt}]\n\n\\pdfgentounicode=1\n\n\\newcommand{\\resumeSubheading}[4]{\n  \\vspace{-2pt}\\item\n    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{#1} & \\textbf{#2} \\\\\n      \\textit{\\small#3} & \\textit{\\small #4} \\\\\n    \\end{tabular*}\\vspace{-8pt}\n}\n\n\\newcommand{\\resumeProjectHeading}[3]{\n  \\item\\small{\n    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{#1} $\\vert$ \\textit{#2} & \\textbf{#3} \\\\\n    \\end{tabular*}\\vspace{-6pt}\n  }\n}\n\n\\newcommand{\\resumeEducation}[5]{\n  \\vspace{-4pt}\\item\n    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}\n      \\textbf{#1} & \\textbf{#2} \\\\\n      \\textit{\\small#3} & \\textit{\\small #4}\n    \\end{tabular*}\\\\[0pt]\n    \\begin{tabular*}{0.97\\textwidth}[t]{p{0.97\\textwidth}}\n        \\small{#5}\n    \\end{tabular*}\n}\n\n\\newcommand{\\resumeSkills}[1]{\n    \\item\\small{#1}\n}\n\n\\newcommand{\\resumeItem}[1]{\\item\\small{#1 \\vspace{-2pt}}}\n\\newcommand{\\resumeSubHeadingListStart}{\\begin{itemize}[leftmargin=0in, label={}]}\n\\newcommand{\\resumeSubHeadingListEnd}{\\end{itemize}}\n\\newcommand{\\resumeItemListStart}{\\begin{itemize}[leftmargin=0.15in, label={{\\footnotesize \\textbullet}}]}\n\\newcommand{\\resumeItemListEnd}{\\end{itemize}\\vspace{-4pt}}\n\n\\begin{document}\n\n%-----------Title (Name, Location, Number, Email, Links)-----------\n\\begin{center}\n    \\textbf{\\Huge \\scshape FirstName LastName} \\\\ \\vspace{4pt}\n    \\small Location $|$ Phone number $|$ \\href{mailto:email@example.com}{\\underline{email@example.com}} $|$ \n    \\href{https://www.linkedin.com/in/example/}{\\underline{linkedin.com/in/example}}\n    $|$ \\href{https://github.com/example}   \n\n\\end{center}\n\n%-----------EDUCATION-----------\n\\section{Education}\n\\resumeSubHeadingListStart\n    \\resumeEducation\n      {School Name}{Graduation Date}\n      {Major}{Location}\n      {Relevant Coursework: List of courses}\n\\resumeSubHeadingListEnd\n\n%-----------TECHNICAL SKILLS-----------\n\\section{Technical Skills}\n\\vspace{0pt}  % Reduce space after section title\n\\resumeSubHeadingListStart\n    \\resumeSkills{Languages: Language1, Language 2\\\\\n    Libraries: Library1, Library2\\\\\n    Tools: Tool1, Tool2}\n\\resumeSubHeadingListEnd\n\\vspace{-10pt} \n\n%-----------EXPERIENCE-----------\n\\section{Experience}\n\\resumeSubHeadingListStart\n    \\resumeSubheading{Company Name}{\\textbf{Start Date -- End Date}}\n      {Role Title}{Location}\n    \\resumeItemListStart\n      \\resumeItem{Resume point 1. \\textless{} this is a less than symbol}\n      \\resumeItem{\\textbf{Bolded} words are emphasized. \\textgreater{} this is a greater than symbol}\n    \\resumeItemListEnd\n\\resumeSubHeadingListEnd\n\n%-----------PROJECTS-----------\n\\section{Projects}\n\\resumeSubHeadingListStart\n    \\resumeProjectHeading{Project Name}{Languages/Tools used}{Start Date - End Date}\n    \\resumeItemListStart\n      \\resumeItem{Resume point 1. \\% this is a percent symbol}\n      \\resumeItem{\\textbf{Bolded} words are emphasized. \\ensuremath{\\approx} this is the approximate symbol}\n    \\resumeItemListEnd\n\n    \\resumeProjectHeading{Project Name}{Languages/Tools used}{Start Date - End Date}\n    \\resumeItemListStart\n      \\resumeItem{Resume point 1}\n      \\resumeItem{\\textbf{Bolded} words are emphasized}\n    \\resumeItemListEnd\n\\resumeSubHeadingListEnd\n\n\\end{document}` +
-							`\n</latex>\n\n`
+							`</latex>`
 					}
 				]
 			}
