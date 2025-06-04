@@ -2,12 +2,20 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import { Readable } from 'stream';
 import { ObjectId } from 'mongodb';
+import OpenAI from 'openai';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { pipeline } from 'stream/promises';
+import mongoose from 'mongoose';
 
 import UserModel from '../models/user_model.js';
 import { resumesBucket, optimizedResumesBucket } from '../config/mongo_connect.js';
 import admin from '../config/firebase_config.js';
 
 dotenv.config();
+
+const client = new OpenAI();
 
 export async function createUser(req, res) {
     const authHeader = req.headers.authorization;
@@ -86,9 +94,14 @@ export async function validateUserMembership(req, res) {
 }
 
 export async function uploadResume(req, res) {
-    if(!req.file) {
-        console.error("Missing resume file");
+    if(!req.file && !req.body.text) {
+        console.error("Missing resume file or text");
         return res.status(400).json({ message: 'Missing resume or firebase_id' });
+    }
+
+    if(req.file && req.body.text) {
+        console.error("Can't upload both file and text");
+        return res.status(400).json({ message: 'Can\'t upload both file and text' });
     }
 
     const authHeader = req.headers.authorization;
@@ -108,45 +121,87 @@ export async function uploadResume(req, res) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const resume = req.file;
-        if (!resume) {
-            return res.status(400).json({ message: 'No resume uploaded' });
+        if(req.file) {
+            const resume = req.file;
+
+            const readableResumeStream = new Readable();
+            readableResumeStream.push(resume.buffer);
+            readableResumeStream.push(null);
+
+            const uploadStream = resumesBucket.openUploadStream(`${user._id}-${resume.originalname}`, {
+                contentType: resume.mimetype,
+                metadata: {
+                    userId: user._id,
+                    email: user.email,
+                    originalFilename: resume.originalname
+                }
+            });
+
+            user.resumeText = null;
+            user.resumeFileId = uploadStream.id;
+
+            readableResumeStream.pipe(uploadStream);
+
+            uploadStream.on('finish', async () => {
+                try {
+                    // Create OpenAI file from the uploaded PDF
+                    const fileId = uploadStream.id;
+                    const filesColl = mongoose.connection.db.collection('resumes.files');
+                    const fileDoc = await filesColl.findOne({ _id: fileId });
+                    if (!fileDoc) {
+                        throw new Error('File not found in GridFS');
+                    }
+                    const tmpPath = path.join(os.tmpdir(), `${fileId}-${fileDoc.filename}`);
+                    
+                    await pipeline(
+                        resumesBucket.openDownloadStream(fileId),
+                        fs.createWriteStream(tmpPath)
+                    );
+                    
+                    const openaiFile = await client.files.create({
+                        file: fs.createReadStream(tmpPath), 
+                        purpose: "user_data"
+                    });
+
+                    // Clean up temporary file
+                    fs.unlink(tmpPath, (err) => {
+                        if (err) {
+                            console.error(`Error deleting temporary file ${tmpPath}:`, err);
+                        } else {
+                            console.log(`Temporary file ${tmpPath} deleted successfully`);
+                        }
+                    });
+
+                    // Store OpenAI file ID in user document
+                    user.resumeOpenAIFileId = openaiFile.id;
+                    console.log(`OpenAI file created successfully with ID: ${openaiFile.id}`);
+                    
+                    await user.save();
+                    res.status(200).json({ 
+                        message: 'Resume uploaded successfully',
+                        resumeId: uploadStream.id
+                    });
+                } catch (error) {
+                    console.error('Failed to save user after resume upload:', error);
+                    res.status(500).json({ message: 'Failed to update user with resume information' });
+                }
+            });
+            
+            uploadStream.on('error', (error) => {
+                console.error('Error uploading to GridFS:', error);
+                res.status(500).json({ message: 'Failed to store resume' });
+            });
+        } else if(req.body.text) {
+            const resume = req.body.text;
+
+            user.resumeText = resume;
+            user.resumeFileId = null;
+            user.resumeOpenAIFileId = null;
+
+            await user.save();
+            res.status(200).json({ message: 'Resume uploaded successfully' });
         }
 
-        const readableResumeStream = new Readable();
-        readableResumeStream.push(resume.buffer);
-        readableResumeStream.push(null);
-
-        const uploadStream = resumesBucket.openUploadStream(`${user._id}-${resume.originalname}`, {
-            contentType: resume.mimetype,
-            metadata: {
-                userId: user._id,
-                email: user.email,
-                originalFilename: resume.originalname
-            }
-        });
-
-        user.resumeFileId = uploadStream.id;
-
-        readableResumeStream.pipe(uploadStream);
-
-        uploadStream.on('finish', async () => {
-            try {
-                await user.save();
-                res.status(200).json({ 
-                    message: 'Resume uploaded successfully',
-                    resumeId: uploadStream.id
-                });
-            } catch (error) {
-                console.error('Failed to save user after resume upload:', error);
-                res.status(500).json({ message: 'Failed to update user with resume information' });
-            }
-        });
-        
-        uploadStream.on('error', (error) => {
-            console.error('Error uploading to GridFS:', error);
-            res.status(500).json({ message: 'Failed to store resume' });
-        });
     } catch (error) {
         console.error('Failed to upload resume:', error);
         res.status(500).json({ message: 'Failed to upload resume' });
