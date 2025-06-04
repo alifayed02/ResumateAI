@@ -55,6 +55,10 @@ async function calculateATSFile(req, res) {
 	2. Give the resume a score based on how many keywords match with the job description.
 	3. Give me a list of matched keywords. Make sure these keywords are explicitly stated in the resume.
 	4. Give me a list of keywords that are not present in the resume (but are present in the job description) that would've given the resume a higher score.
+	
+	<job>
+	` + req.body.job_description + `
+	</job>
 	`;
 
 	const response = await client.responses.create({
@@ -135,6 +139,10 @@ async function calculateATSText(req, res) {
 	<resume>
 	` + user.resumeText + `
 	</resume>
+
+	<job>
+	` + req.body.job_description + `
+	</job>
 	`;
 
 	const response = await client.responses.create({
@@ -223,12 +231,16 @@ async function optimizeFile(req, res) {
 		return res.status(400).json({ message: 'User has no resume' });
 	}
 
-	const { links } = await getLinks(user.resumeFileId);
+	const links = await getLinks(user.resumeFileId);
 
     let changes_accumulated = {};
     const info = await getInfoFile(user.resumeOpenAIFileId);
+
+	console.log("[Debug]: ", links);
 	
 	info.info.links = links;
+
+	console.log("[Debug]: ", info);
 	
 	const details = info.info;
 	const sections = info.sections;
@@ -330,7 +342,7 @@ async function getLinks(resume_file_id) {
 	const loadingTask = pdfjsLib.getDocument({ data });
 	const pdfDocument = await loadingTask.promise;
 
-	const urls = new Set();
+	const urls = [];
 
 	for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
 		const page = await pdfDocument.getPage(pageNum);
@@ -339,7 +351,7 @@ async function getLinks(resume_file_id) {
 
 		for (const annot of annotations) {
 			if (annot.subtype === "Link" && annot.url) {
-				urls.add(annot.url);
+				urls.push(annot.url);
 			} else if (annot.subtype === "Link" && annot.dest) {
 			}
 		}
@@ -353,7 +365,9 @@ async function getLinks(resume_file_id) {
 		}
 	});
 
-	return Array.from(urls);
+	console.log(urls);
+
+	return urls;
 }
 
 async function getInfoFile(resume_file_id) {
@@ -632,6 +646,7 @@ async function getChangesText(resume_text, section, job_description) {
 }
 
 async function generateResumeFromFile(resume_file_id, changes_accumulated, details) {
+	console.log("[Debug]: ", details)
 	const response = await client.responses.create({
 		model: "gpt-4.1-mini",
 		input: [

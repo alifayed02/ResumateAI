@@ -17,12 +17,22 @@ await connectDB();
 
 app.use(helmet());
 
+let frontendUrl;
+
+if(process.env.NODE_ENV === 'production') {
+    frontendUrl = process.env.PROD_FRONTEND_URL;
+} else {
+    frontendUrl = process.env.DEV_FRONTEND_URL;
+}
+
+console.log("[Debug]: ", frontendUrl);
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: frontendUrl,
     credentials: true,
 }));
 
-// Log requests
+
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
     next();
