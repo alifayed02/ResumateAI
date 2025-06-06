@@ -19,11 +19,12 @@ dotenv.config();
 const client = new OpenAI();
 
 export async function calculateATS(req, res) {
-	if(!req.body.job_description || !req.body.firebase_id) {
+	if(!req.body.job_description) {
 		return res.status(400).json({ message: 'Missing details in body' });
 	}
 
-	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	const { firebase_id } = req;
+	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
 	}
@@ -38,7 +39,8 @@ export async function calculateATS(req, res) {
 }
 
 async function calculateATSFile(req, res) {
-	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	const { firebase_id } = req;
+	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
 	}
@@ -118,7 +120,8 @@ async function calculateATSFile(req, res) {
 }
 
 async function calculateATSText(req, res) {
-	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	const { firebase_id } = req;
+	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
 	}
@@ -198,11 +201,12 @@ async function calculateATSText(req, res) {
 }
 
 export async function optimize(req, res) {
-	if(!req.body.job_description || !req.body.firebase_id) {
+	if(!req.body.job_description) {
 		return res.status(400).json({ message: 'Missing details in body' });
 	}
 
-	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	const { firebase_id } = req;
+	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
 	}
@@ -217,7 +221,8 @@ export async function optimize(req, res) {
 }
 
 async function optimizeFile(req, res) {
-	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	const { firebase_id } = req;
+	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
 	}
@@ -278,7 +283,8 @@ async function optimizeFile(req, res) {
 }
 
 async function optimizeText(req, res) {
-	const user = await UserModel.findOne({ firebase_id: req.body.firebase_id });
+	const { firebase_id } = req;
+	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
 	}

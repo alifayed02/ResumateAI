@@ -18,18 +18,11 @@ dotenv.config();
 const client = new OpenAI();
 
 export async function createUser(req, res) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ message: 'We encountered an unexpected problem. Please refresh and try again.' });
-    }
-    
-    const token = authHeader.split('Bearer ')[1];
-    
     try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const firebase_id = decodedToken.uid;
+        const { firebase_id } = req;
         const email = req.body.email;
         
+        const decodedToken = await admin.auth().getUser(firebase_id);
         if (email !== decodedToken.email) {
             return res.status(403).json({ message: 'We encountered a problem optimizing your resume. Please refresh and try again.' });
         }
@@ -46,17 +39,12 @@ export async function createUser(req, res) {
         res.status(201).json({ message: 'User created successfully' });
     } catch (error) {
         console.error('Failed to create user:', error);
-        if (error.code === 'auth/id-token-expired') {
-            return res.status(401).json({ message: 'Token expired' });
-        } else if (error.code && error.code.startsWith('auth/')) {
-            return res.status(401).json({ message: 'Invalid token' });
-        }
         res.status(500).json({ message: 'Failed to create user' });
     }
 }
 
 export async function getUser(req, res) {
-    const firebase_id = req.body.firebase_id;
+    const { firebase_id } = req;
     const user = await UserModel.findOne({ firebase_id });
     if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -65,7 +53,7 @@ export async function getUser(req, res) {
 }
 
 export async function validateUserMembership(req, res) {
-    const firebase_id = req.body.firebase_id;
+    const { firebase_id } = req;
     
     try {
         const user = await UserModel.findOne({ firebase_id });
@@ -85,11 +73,11 @@ export async function validateUserMembership(req, res) {
             }
         }
 
-        res.status(200).json({ message: 'Membership status validated'});
+        return res.status(200).json({ message: 'Membership status validated'});
 
     } catch (error) {
         console.error('Failed to update user membership:', error);
-        res.status(500).json({ message: 'Failed to update user membership', error: error.message });
+        return res.status(500).json({ message: 'Failed to update user membership', error: error.message });
     }
 }
 
@@ -104,17 +92,8 @@ export async function uploadResume(req, res) {
         return res.status(400).json({ message: 'Can\'t upload both file and text' });
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.log("No token provided or invalid format");
-        return res.status(401).json({ message: 'No token provided or invalid format' });
-    }
-    
-    const token = authHeader.split('Bearer ')[1];
-
     try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const firebase_id = decodedToken.uid;
+        const { firebase_id } = req;
         
         const user = await UserModel.findOne({ firebase_id });
         if (!user) {
@@ -209,7 +188,7 @@ export async function uploadResume(req, res) {
 }
 
 export async function retrieveResume(req, res) {
-    const firebase_id = req.body.firebase_id;
+    const { firebase_id } = req;
     if (!firebase_id) {
         return res.status(400).json({ message: 'Firebase ID is required' });
     }

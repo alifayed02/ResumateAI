@@ -4,6 +4,7 @@ import express from 'express';
 import multer from 'multer';
 
 import { createUser, getUser, uploadResume, retrieveResume, validateUserMembership } from '../controllers/user_controller.js';
+import authMiddleware from '../middleware/auth_middleware.js';
 
 const router = Router();
 const upload = multer();
@@ -21,10 +22,10 @@ const handleResumeUpload = (req, res, next) => {
     }
 };
 
-router.post('/create', express.json(), createUser);
-router.post('/get', express.json(), getUser);
-router.post('/validate_membership', express.json(), validateUserMembership);
-router.post('/upload_resume', handleResumeUpload, uploadResume);
-router.post('/retrieve_resume', express.json(), retrieveResume);
+router.post('/create', authMiddleware, express.json(), createUser);
+router.get('/get', authMiddleware, express.json(), getUser);
+router.post('/validate_membership', authMiddleware, express.json(), validateUserMembership);
+router.post('/upload_resume', authMiddleware, handleResumeUpload, uploadResume);
+router.get('/retrieve_resume', authMiddleware, express.json(), retrieveResume);
 
 export default router;
