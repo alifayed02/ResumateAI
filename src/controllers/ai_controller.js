@@ -1,4 +1,6 @@
 import OpenAI from 'openai';
+import { zodTextFormat } from "openai/helpers/zod";
+import { z } from "zod";
 import dotenv from 'dotenv';
 import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
@@ -249,19 +251,10 @@ async function optimizeFile(req, res) {
 	
 	const details = info.info;
 	const sections = info.sections;
-    
-    const changePromises = sections.map(async (section) => {
-        const changes = await getChangesFile(user.resumeOpenAIFileId, section, req.body.job_description);
-        return { section, changes };
-    });
-    
-    const results = await Promise.all(changePromises);
-    
-    results.forEach(({ section, changes }) => {
-        changes_accumulated[section] = changes;
-    });
+	
+	const changes = await getChangesFile(user.resumeOpenAIFileId, req.body.job_description, sections);
 
-    const generatedLatex = await generateResumeFromFile(user.resumeOpenAIFileId, changes_accumulated, details);
+    const generatedLatex = await generateResumeFromFile(user.resumeOpenAIFileId, changes, details);
     if (generatedLatex) {
         try {
             const fileId = await uploadPDF(generatedLatex, user);
@@ -300,18 +293,9 @@ async function optimizeText(req, res) {
 	const details = info.info;
 	const sections = info.sections;
     
-    const changePromises = sections.map(async (section) => {
-        const changes = await getChangesText(user.resumeText, section, req.body.job_description);
-        return { section, changes };
-    });
+	const changes = await getChangesText(user.resumeText, req.body.job_description, sections);
     
-    const results = await Promise.all(changePromises);
-    
-    results.forEach(({ section, changes }) => {
-        changes_accumulated[section] = changes;
-    });
-
-    const generatedLatex = await generateResumeFromText(user.resumeText, changes_accumulated, details);
+    const generatedLatex = await generateResumeFromText(user.resumeText, changes, details);
     if (generatedLatex) {
         try {
             const fileId = await uploadPDF(generatedLatex, user);
@@ -389,11 +373,39 @@ async function getInfoFile(resume_file_id) {
 					},
 					{
 						type: "input_text",
-						text: `Look at the input resume file and tell me the list of sections this file has. 
-						Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activies, Languages, 
-						Volunteering Experience, Hobbies & Interests.
+						text: `You will be tasked with extracting sections in a resume as well as the candidate’s personal information like the candidate's full name, location, phone number, and email.
 						
-						I want you to also extract the candidate's full name, location, phone number, and email.`
+						Your thinking should be thorough and so it’s fine if it’s very long. You can think step by step before and after each action you decide to take.
+						
+						You MUST iterate and keep going until you have found all sections and personal information in the resume.
+						
+						The resume is attached as a file, which means you have everything you need. I want you to fully extract the sections and personal information autonomously before coming back to me.
+						
+						Only terminate your turn when you are sure that all sections and personal information are extracted. Go through the resume line by line, and make sure to verify that your answer is correct. NEVER end your turn without having found all the sections and personal information, and when you say you will look at the file, make sure you ACTUALLY look at the file, instead of ending your turn.
+						
+						Take your time and think through every step - remember to check your answer rigorously and watch out for mistakes. Your answer must be perfect. If not, continue working on it. At the end, you must check your answer to make sure all sections and personal information were extracted. All resumes may look different, so make sure to understand how the resume is formatted before trying to extract the sections and personal information.
+						
+						Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activities, Languages, Volunteering Experience, Hobbies & Interests
+						
+						Common personal information are: Full name, location, phone number, and email.
+						
+						# Workflow
+						
+						## High-Level Strategy
+						
+						1. Understand the format and structure of the resume.
+						2. Develop a clear, step-by-step plan. Break down the problem into manageable incremental steps.
+						3. Extract sections and personal information incrementally.
+						4. Iterate until you have extracted all the sections and personal information.
+						5. Reflect and validate comprehensively.
+
+						## Detailed Plan
+
+						1. Read the resume file.
+						2. Identify the sections in the resume.
+						3. Extract the personal information from the resume.
+						4. Iterate until you have extracted all the sections and personal information.
+						5. Reflect and validate comprehensively.`
 					}
 				]
 			}
@@ -449,17 +461,36 @@ async function getInfoText(resume_text) {
 				content: [
 					{
 						type: "input_text",
-						text: `Below you are given a resume copy and pasted as text. I want you to tell me the list of sections this resume has. 
-						Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activies, Languages, 
-						Volunteering Experience, Hobbies & Interests.
+						text: `You will be tasked with extracting sections in a resume as well as the candidate’s personal information like the candidate's full name, location, phone number, and email.
 						
-						I want you to also extract the candidate's full name, location, phone number, email and any links in the resume.
+						Your thinking should be thorough and so it’s fine if it’s very long. You can think step by step before and after each action you decide to take.
 						
-						--
-
-						<resume text>
-						` + resume_text + `
-						</resume text>`
+						You MUST iterate and keep going until you have found all sections and personal information in the resume.
+						
+						The resume is copy and pasted below as text, which means you have everything you need. I want you to fully extract the sections and personal information autonomously before coming back to me.
+						
+						Only terminate your turn when you are sure that all sections and personal information are extracted. Go through the resume line by line, and make sure to verify that your answer is correct. NEVER end your turn without having found all the sections and personal information, and when you say you will look at the resume, make sure you ACTUALLY look at the resume, instead of ending your turn.
+						
+						Take your time and think through every step - remember to check your answer rigorously and watch out for mistakes. Your answer must be perfect. If not, continue working on it. At the end, you must check your answer to make sure all sections and personal information were extracted. All resumes may look different, so make sure to understand how the resume is formatted before trying to extract the sections and personal information.
+						
+						Common sections are: Summary/Objective, Work Experience, Education, Skills, Projects, Extracurricular Activities, Languages, Volunteering Experience, Hobbies & Interests
+						
+						Common personal information are: Full name, location, phone number, and email.
+						
+						# Workflow
+						
+						## High-Level Strategy
+						
+						1. Understand the format and structure of the resume.
+						2. Develop a clear, step-by-step plan. Break down the problem into manageable incremental steps.
+						3. Extract sections and personal information incrementally.
+						4. Iterate until you have extracted all the sections and personal information.
+						5. Reflect and validate comprehensively.
+						
+						# Information
+						
+						## Resume
+						` + resume_text + ``
 					}
 				]
 			}
@@ -507,7 +538,13 @@ async function getInfoText(resume_text) {
 	return info;
 }
 
-async function getChangesFile(resume_file_id, section, job_description) {
+async function getChangesFile(resume_file_id, job_description, sections) {
+	const optimized_changes = z.object({
+		changes: z.array(
+			z.array(z.string()).length(2)
+		)
+	});
+
 	const response = await client.responses.create({
 		model: "gpt-4.1-mini",
 		input: [
@@ -520,36 +557,94 @@ async function getChangesFile(resume_file_id, section, job_description) {
 					},
 					{
 						type: "input_text",
-						text: `You are an expert in making resumes that catch the attention of recruiters and hiring managers.
-						
-						Using the uploaded file and the job description, optimize the \"${section}\" section to make this uploaded resume file the best 
-						possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, 
-						with extra emphasis on recurring terms.
+						text: `
+						You will be tasked with optimizing a resume to get a perfect score in an ATS system.  
 
-						Make sure you are only looking at the \"${section}\" section and make sure the tailored bullet point agrees with the context of the original bullet point.
+						Your thinking should be thorough and so it's fine if it's very long. You can think step by step before and after each action you decide to take.
+
+						You MUST iterate and keep going until the resume is perfectly optimized.  
+
+						The resume is attached as a file and the job description is pasted at the bottom. This means that you have everything you need to optimize the resume. I want you to fully optimize the resume before coming back to me.
+
+						Only terminate your turn when you are sure that the resume is sufficiently optimized. Go through each bullet point step by step, and make sure to verify that your changes perfectly align with the job description and that they make sense. NEVER end your turn without having optimized the resume. When you say you are going to look at the file, make sure you ACTUALLY look at the file, instead of ending your turn.
 						
-						For every line that you change, give me the EXACT old line in FULL as well as the new 
-						line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.
+						Take your time and think through every step - remember to check your updates and cross-check them with the job description. Your solution must be perfect. If not, continue working on it. At the end, cross check your solution with the job description to make sure the resume is perfectly optimized. Keep iterating until you are certain your solution will score perfectly when fed to an ATS system.
+
+						Aim for about 60-70 characters per new line.
+
+						Your response will be strictly JSON which will contain an array of arrays. The inner array will contain 2 elements: the old line, and the new line. The old line should be the EXACT text before you make your change. The new line will be the newly optimized line. For each optimization you make, you will append this array of 2 elements to the outer array.
+
+						# Sections
+
+						` + sections.join(", ") + `
+
+						# Job Description
+
+						` + job_description + `
 						
-						Aim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want 
-						from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT 
-						include citations. Ensure the JSON is in valid format:
+						# Workflow
+
+						## High-Level Problem Solving Strategy
+
+						1. Understand the resume and job description. Thoroughly analyze the job description to extract keywords, responsibilities, and required skills. Build a mental map of the ideal candidate profile.  
+						2. Extract explicit and implied keywords from the job description. Group them into categories: skills, technologies, action verbs, soft skills, etc.  
+						3. Identify which keywords are missing, which are present.  
+						4. Modify lines in the resume to naturally and appropriately include the missing keywords. Align phrasing, responsibilities, and experiences with those emphasized in the job description. Avoid keyword stuffing to make the changes sound natural, human, and verifiable.
+
+						5. After each edit, re-check how well the resume matches with the job description. Continue refining and editing until all relevant keywords are covered.
+
+						6. Cross-check every section of the resume against the job description. Ensure that the resume is not only keyword-rich but also coherent, concise, and professional. Ensure every bullet point is results-driven, using strong action verbs and quantified outcomes when possible.  
+
+						Refer to the detailed sections below for more information on each step.
+
+						## 1. Deeply Understand the Resume and Job Description
+
+						1. Read both documents thoroughly.  
+						2. Understand what the job is truly asking for: required experience, culture fit, impact, and scope of work.  
 						
+						## 2. Extract and Categorize Keywords  
+						1. List all important hard skills, soft skills, tools and platforms, certifications or education requirements, and job-specific responsibilities and verbs.
+
+						## 3. Evaluate the Resume
+
+						1. Highlight all present keywords
+						2. List all missing or weakly represented keywords
+						3. Highlight vague bullet points or achievements lacking metrics or action.
+
+						## 4. Iterative Optimization and Editing
+
+						1. Update the resume section-by-section
+						2. Modify descriptions to: add missing keywords; use strong action verbs; show quantifiable outcomes; match the job scope and phrasing.
+
+						## 5. Realignment Loop
+
+						1. Repeat steps 2-4 until: all essential keywords are covered; resume tone and wording mirror the job description; each change makes logical sense and adds value.
+
+						## 6. Final Checks
+
+						1. Ensure all achievements are believable and tailored to the job
+
+						# Example Response
+
 						{
-						\"changes\": {
-						\"0\": [\"Old line\", \"New Line\"],
-						\"1\": [\"Another old line\", \"Another new line\"]
+						"changes": [
+						["This is the original text", "This is the optimized text"], ["This is another original text", "This is another optimized text"]
+						]
 						}
 
-						--
+						# Remember
 
-						<job description>
-						` + job_description + `
-						</job description>`
+						1. Never end your turn without optimizing the resume
+						2. Always check your edits against the job description
+						3. Keep going until you are confident the resume is flawless and would score a perfect match with any modern ATS.
+						`
 					}
 				]
 			}
-		]
+		],
+		text: {
+			format: zodTextFormat(optimized_changes, "changes")
+		}
 	});
 
 	if(!response.output_text) {
@@ -560,26 +655,26 @@ async function getChangesFile(resume_file_id, section, job_description) {
 
 	try {
 		console.log("[Debug] Changes: ", last_message);
-		const changeJson = JSON.parse(last_message);
-		  
-		const changes = [];
-		for (const key in changeJson.changes) {
-			if (Object.hasOwnProperty.call(changeJson.changes, key)) {
-				changes.push(changeJson.changes[key]);
-			}
-		}
+		const changes = JSON.parse(last_message);
 
-		console.log(`[Debug] Successfully parsed ${section}`);
+		console.log(`[Debug] Successfully optimized resume`);
 		
 		return changes;
 	} catch (error) {
-		console.error(`[Error] Error parsing ${section}:`, error);
+		console.error(`[Error] Error parsing optimized changes:`, error);
 		console.log("[Error] Raw message:", last_message);
 		return null;
 	}
 }
 
-async function getChangesText(resume_text, section, job_description) {
+async function getChangesText(resume_text, job_description, sections) {
+	const optimized_changes = z.object({
+		changes: z.array(z.tuple([
+			z.string(),
+			z.string()
+		]))
+	});
+
 	const response = await client.responses.create({
 		model: "gpt-4.1-mini",
 		input: [
@@ -588,40 +683,101 @@ async function getChangesText(resume_text, section, job_description) {
 				content: [
 					{
 						type: "input_text",
-						text: `You are an expert in making resumes that catch the attention of recruiters and hiring managers.
-						
-						Using the resume below (copy and pasted as text)and the job description, optimize the \"${section}\" section to make this uploaded resume file the best 
-						possible candidate for the role. Your goal is to improve ATS score by including key terms in the job description in the resume, 
-						with extra emphasis on recurring terms.
+						text: `You will be tasked with optimizing a resume to get a perfect score in an ATS system.  
 
-						Make sure you are only looking at the \"${section}\" section and make sure the tailored bullet point agrees with the context of the original bullet point.
+						Your thinking should be thorough and so it's fine if it's very long. You can think step by step before and after each action you decide to take.
+
+						You MUST iterate and keep going until the resume is perfectly optimized.  
+
+						The resume and job description are pasted below as text. This means that you have everything you need to optimize the resume. I want you to fully optimize the resume before coming back to me.
+
+						Only terminate your turn when you are sure that the resume is sufficiently optimized. Go through each line step by step, and make sure to verify that your changes perfectly align with the job description and that they make sense. NEVER end your turn without having optimized the resume.
 						
-						For every line that you change, give me the EXACT old line in FULL as well as the new 
-						line with the changes. I want to be able to easily 'CTRL F' to find the entirety of the old text and replace it with the new text.
+						Take your time and think through every step - remember to check your updates and cross-check them with the job description. Your solution must be perfect. If not, continue working on it. At the end, cross check your solution with the job description to make sure the resume is perfectly optimized. Keep iterating until you are certain your solution will score perfectly when fed to an ATS system.
+
+						Aim for about 60-70 characters per new line.
+
+						Your response will be strictly JSON which will contain an array of arrays. The inner array will contain 2 elements: the old line, and the new line. The old line should be the EXACT text before you make your change. The new line will be the newly optimized line. For each optimization you make, you will append this array of 2 elements to the outer array.
+
+						# Sections
+
+						` + sections.join(", ") + `
+
+						# Resume
 						
-						Aim for about 60-70 characters per new line. Only edit resume bullet points.\n\nHere is an exact example response (JSON) that I want 
-						from you, no more no less. Do not include whitespace whatsoever, DO NOT format it in a code block/syntax highlighting, and DO NOT 
-						include citations. Ensure the JSON is in valid format:
+						` + resume_text + `
+
+						# Job Description  
+
+						` + job_description + `
+
+						# Workflow
+
+						## High-Level Problem Solving Strategy
+
+						1. Understand the resume and job description. Thoroughly analyze the job description to extract keywords, responsibilities, and required skills. Build a mental map of the ideal candidate profile.  
+						2. Extract explicit and implied keywords from the job description. Group them into categories: skills, technologies, action verbs, soft skills, etc.  
+						3. Identify which keywords are missing, which are present.  
+						4. Modify lines in the resume to naturally and appropriately include the missing keywords. Align phrasing, responsibilities, and experiences with those emphasized in the job description. Avoid keyword stuffing to make the changes sound natural, human, and verifiable.
+
+						5. After each edit, re-check how well the resume matches with the job description. Continue refining and editing until all relevant keywords are covered.
+
+						6. Cross-check every section of the resume against the job description. Ensure that the resume is not only keyword-rich but also coherent, concise, and professional. Ensure every bullet point is results-driven, using strong action verbs and quantified outcomes when possible.  
+
+						Refer to the detailed sections below for more information on each step.
+
+						## 1. Deeply Understand the Resume and Job Description
+
+						1. Read both documents thoroughly.  
+						2. Understand what the job is truly asking for: required experience, culture fit, impact, and scope of work.  
 						
+						## 2. Extract and Categorize Keywords  
+						1. List all important hard skills, soft skills, tools and platforms, certifications or education requirements, and job-specific responsibilities and verbs.
+
+						## 3. Evaluate the Resume
+
+						1. Highlight all present keywords
+						2. List all missing or weakly represented keywords
+						3. Highlight vague bullet points or achievements lacking metrics or action.
+
+						## 4. Iterative Optimization and Editing
+
+						1. Update the resume section-by-section
+						2. Modify descriptions to: add missing keywords; use strong action verbs; show quantifiable outcomes; match the job scope and phrasing.
+
+						## 5. Realignment Loop
+
+						1. Repeat steps 2-4 until: all essential keywords are covered; resume tone and wording mirror the job description; each change makes logical sense and adds value.
+
+						## 6. Final Checks
+
+						1. Ensure all achievements are believable and tailored to the job
+
+						# Example Response
+
 						{
-						\"changes\": {
-						\"0\": [\"Old line\", \"New Line\"],
-						\"1\": [\"Another old line\", \"Another new line\"]
+
+						"changes": [
+
+						["This is the original text", "This is the optimized text"], ["This is another original text", "This is another optimized text"]
+
+						]
+
 						}
 
-						--
+						# Remember
 
-						<resume text>
-						` + resume_text + `
-						</resume text>
-
-						<job description>
-						` + job_description + `
-						</job description>`
+						1. Never end your turn without optimizing the resume
+						2. Always check your edits against the job description
+						3. Keep going until you are confident the resume is flawless and would score a perfect match with any modern ATS.
+						`
 					}
 				]
 			}
-		]
+		],
+		text: {
+			format: zodTextFormat(optimized_changes, "changes")
+		}
 	});
 
 	if(!response.output_text) {
@@ -735,14 +891,7 @@ async function generateResumeFromText(resume_text, changes_accumulated, details)
 							The JSON of changes to make is written in this format:
 							
 							{
-								ResumeSection1: [
-									["old bullet 1", "new bullet 1"],
-									["old bullet 2", "new bullet 2"]
-								],
-								ResumeSection2: [
-									["old bullet 1", "new bullet 1"],
-									["old bullet 2", "new bullet 2"]
-								]
+							"changes": [["This is the original bullet point", "This is the optimized bullet point"], ["This is another original bullet point", "This is another optimized bullet point"]]
 							}
 
 							You are to replace the exact old bullets in the resume with the exact new bullets. Make sure personal details, project names & dates, company names & dates, tools use, etc. are correctly included. Do NOT change anything else.
