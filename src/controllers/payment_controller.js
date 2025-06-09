@@ -9,7 +9,8 @@ dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export async function createOneTimePaymentSession(req, res) {
-    const { firebase_id, credits } = req.body;
+    const { credits } = req.body;
+    const { firebase_id } = req;
 
     const user = await UserModel.findOne({ firebase_id });
     if(!user) {
@@ -52,7 +53,8 @@ export async function createOneTimePaymentSession(req, res) {
 }
 
 export async function createSubscriptionSession(req, res) {
-    const { firebase_id, membership } = req.body;
+    const { membership } = req.body;
+    const { firebase_id } = req;
   
     const user = await UserModel.findOne({ firebase_id });
     if (!user) {
@@ -90,7 +92,7 @@ export async function createSubscriptionSession(req, res) {
 }
 
 export async function cancelSubscription(req, res) {
-    const { firebase_id } = req.body;
+    const { firebase_id } = req;
 
     const user = await UserModel.findOne({ firebase_id });
     if(!user) {

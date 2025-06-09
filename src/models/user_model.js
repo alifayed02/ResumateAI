@@ -15,6 +15,16 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'resumes.files'
     },
+    resumeOpenAIFileId: {
+        type: String,
+        required: false,
+        default: null
+    },
+    resumeText: {
+        type: String,
+        required: false,
+        default: null
+    },
     optimizedResumeFileId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'optimized_resumes.files'
