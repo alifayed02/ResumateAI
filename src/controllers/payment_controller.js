@@ -8,6 +8,13 @@ dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
+let base_url = process.env.DEV_FRONTEND_URL;
+
+if(process.env.NODE_ENV === 'production') {
+    base_url = process.env.PROD_FRONTEND_URL;
+}
+
+
 export async function createOneTimePaymentSession(req, res) {
     const { credits } = req.body;
     const { firebase_id } = req;
@@ -37,8 +44,8 @@ export async function createOneTimePaymentSession(req, res) {
                 quantity: 1,
               },
             ],
-            success_url: "http://localhost:3000/profile",
-            cancel_url: "http://localhost:3000/",
+            success_url: `${base_url}/profile`,
+            cancel_url: `${base_url}/`,
             metadata: {
               firebase_id: firebase_id,
               credits: credits
@@ -80,8 +87,8 @@ export async function createSubscriptionSession(req, res) {
           firebase_id: firebase_id,
           membership: membership,
         },
-        success_url: "http://localhost:3000/profile",
-        cancel_url: "http://localhost:3000/",
+        success_url: `${base_url}/profile`,
+        cancel_url: `${base_url}/`,
       });
   
       res.json({ sessionId: session.id });
