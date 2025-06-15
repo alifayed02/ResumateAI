@@ -11,6 +11,7 @@ async function authMiddleware(req, res, next) {
     try {
         const decodedToken = await admin.auth().verifyIdToken(token);
         req.firebase_id = decodedToken.uid;
+        req.email_verified = decodedToken.email_verified;
         next();
     } catch (error) {
         console.error('Failed to authenticate user:', error);

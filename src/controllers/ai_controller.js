@@ -25,10 +25,14 @@ export async function calculateATS(req, res) {
 		return res.status(400).json({ message: 'Missing details in body' });
 	}
 
-	const { firebase_id } = req;
+	const { firebase_id, email_verified } = req;
 	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
+	}
+
+	if(!email_verified) {
+		return res.status(403).json({ message: 'User is not verified' });
 	}
 
 	if(user.resumeFileId) {
@@ -207,10 +211,14 @@ export async function optimize(req, res) {
 		return res.status(400).json({ message: 'Missing details in body' });
 	}
 
-	const { firebase_id } = req;
+	const { firebase_id, email_verified } = req;
 	const user = await UserModel.findOne({ firebase_id: firebase_id });
 	if(!user) {
 		return res.status(404).json({ message: 'User not found' });
+	}
+
+	if(!email_verified) {
+		return res.status(403).json({ message: 'User is not verified' });
 	}
 
 	if(user.resumeFileId) {
