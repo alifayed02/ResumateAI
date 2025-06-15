@@ -6,7 +6,17 @@ import UserModel from '../models/user_model.js';
 
 dotenv.config();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+let secret_key = '';
+let webhook_secret = '';
+if(process.env.NODE_ENV === 'production') {
+  secret_key = process.env.PROD_STRIPE_SECRET_KEY;
+  webhook_secret = process.env.PROD_STRIPE_WEBHOOK_SECRET;
+} else if(process.env.NODE_ENV === 'development') {
+  secret_key = process.env.DEV_STRIPE_SECRET_KEY;
+  webhook_secret = process.env.DEV_STRIPE_WEBHOOK_SECRET;
+}
+
+const stripe = new Stripe(secret_key);
 
 let base_url = process.env.DEV_FRONTEND_URL;
 
@@ -216,7 +226,7 @@ export async function webhook(req, res) {
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET
+      webhook_secret
     );
   } catch (err) {
     console.error('Failed to construct event:', err);
