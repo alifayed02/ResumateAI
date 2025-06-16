@@ -156,7 +156,7 @@ export async function cancelSubscription(req, res) {
   res.json({ message: "Subscription cancelled" });
 }
 
-async function handleOneTimePayment(session, res) {
+async function handleOneTimePayment(session) {
   const firebaseId = session.metadata?.firebase_id;
   const credits = session.metadata?.credits;
 
@@ -164,11 +164,12 @@ async function handleOneTimePayment(session, res) {
 
   if (!user) {
     console.error('User not found');
-    return res.status(404).send('User not found');
+    return;
   }
 
   if(!user.verified) {
-		return res.status(403).json({ message: 'User is not verified' });
+		console.error('User is not verified');
+    return;
 	}
 
   await UserModel.updateOne(
@@ -181,7 +182,7 @@ async function handleOneTimePayment(session, res) {
   console.log("Payment intent handled");
 }
 
-async function handleSubscription(session, res) {
+async function handleSubscription(session) {
   const firebaseId = session.metadata.firebase_id;
   const membership = session.metadata.membership;
   const subscriptionId = session.subscription;
@@ -190,17 +191,18 @@ async function handleSubscription(session, res) {
 
   if (!user) {
     console.error('User not found');
-    return res.status(404).send('User not found');
+    return;
   }
 
   if(!user.verified) {
-		return res.status(403).json({ message: 'User is not verified' });
+		console.error('User is not verified');
+    return;
 	}
 
   const membership_details = await MembershipModel.findOne({ name: membership });
   if (!membership_details) {
     console.error('Membership not found');
-    return res.status(404).send('Membership not found');
+    return;
   }
 
   await UserModel.updateOne(
@@ -221,6 +223,11 @@ export async function webhook(req, res) {
   console.log("Webhook received");
   const sig = req.headers["stripe-signature"];
 
+  if (!user) {
+    console.error('User not found');
+    return;
+  }
+
   let event;
   try {
     event = stripe.webhooks.constructEvent(
@@ -238,10 +245,10 @@ export async function webhook(req, res) {
       const session = event.data.object;
       switch (session.mode) {
         case "subscription":
-          await handleSubscription(session, res);
+          await handleSubscription(session);
           break;
         case "payment":
-          await handleOneTimePayment(session, res);
+          await handleOneTimePayment(session);
           break;
       }
       break;
