@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import aiRoutes from './routes/ai_routes.js';
 import userRoutes from './routes/user_routes.js';
 import paymentRoutes from './routes/payment_route.js';
+import webhookRoute from './routes/webhook_route.js';
 import { connectDB } from './config/mongo_connect.js';
 
 dotenv.config();
@@ -32,6 +33,7 @@ app.use(cors({
     credentials: true,
 }));
 
+app.use('/api/v1/payment', webhookRoute);
 
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
@@ -41,6 +43,8 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => {
     res.send('Hello, world!');
 });
+
+app.use(express.json());
 
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/user', userRoutes);
