@@ -167,11 +167,6 @@ async function handleOneTimePayment(session) {
     return;
   }
 
-  if(!user.verified) {
-		console.error('User is not verified');
-    return;
-	}
-
   await UserModel.updateOne(
     { firebase_id: firebaseId },
     {
@@ -193,11 +188,6 @@ async function handleSubscription(session) {
     console.error('User not found');
     return;
   }
-
-  if(!user.verified) {
-		console.error('User is not verified');
-    return;
-	}
 
   const membership_details = await MembershipModel.findOne({ name: membership });
   if (!membership_details) {
@@ -249,5 +239,5 @@ export async function webhook(req, res) {
       break;
   }
 
-  res.json({ received: true });
+  return res.json({ received: true });
 }
