@@ -223,11 +223,6 @@ export async function webhook(req, res) {
   console.log("Webhook received");
   const sig = req.headers["stripe-signature"];
 
-  if (!user) {
-    console.error('User not found');
-    return;
-  }
-
   let event;
   try {
     event = stripe.webhooks.constructEvent(
