@@ -8,11 +8,9 @@ let resumesBucket;
 let optimizedResumesBucket;
 
 export async function connectDB() {
-    const uri = process.env.MONGO_URI;
-
-
+    const db_name = 'resumate';
     try {
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(process.env.MONGO_URI, { db_name });
         console.log('MongoDB connected');
 
         const db = mongoose.connection.db;
